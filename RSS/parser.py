@@ -14,6 +14,7 @@ DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
+
 RSS_FEED_URL = os.getenv("RSS_FEED_URL")
 PARAMETER_NAME = "/rss/last_published"
 API_URL = "https://router.huggingface.co/fireworks-ai/inference/v1/chat/completions"
@@ -83,7 +84,7 @@ def lambda_handler(event, context):
             cursor = conn.cursor()
             cursor.executemany(
                 """
-                INSERT INTO rss_feeds (title, vendor, product, date, exploits, summary, url)
+                INSERT INTO rss_feeds (title, vendor, product, published, exploits, summary, url)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (title) DO NOTHING;
                 """,
@@ -100,3 +101,5 @@ def lambda_handler(event, context):
 
     except Exception as e:
         return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+    
+lambda_handler(None, None)

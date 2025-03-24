@@ -3,70 +3,80 @@ provider "aws" {
 }
 
 # Create a VPC
-resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-}
+# resource "aws_vpc" "main" {
+#   cidr_block = "10.0.0.0/16"
+# }
 
 # Create subnets
-resource "aws_subnet" "subnet1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
-}
+# resource "aws_subnet" "subnet1" {
+#   vpc_id            = aws_vpc.main.id
+#   cidr_block        = "10.0.1.0/24"
+#   availability_zone = "us-east-1a"
+# }
 
-resource "aws_subnet" "subnet2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
-}
+# resource "aws_subnet" "subnet2" {
+#   vpc_id            = aws_vpc.main.id
+#   cidr_block        = "10.0.2.0/24"
+#   availability_zone = "us-east-1b"
+# }
 
 # Fetch subnet IDs
-data "aws_subnet" "subnet1" {
-  id = aws_subnet.subnet1.id
-}
+# data "aws_subnet" "subnet1" {
+#   id = aws_subnet.subnet1.id
+# }
 
-data "aws_subnet" "subnet2" {
-  id = aws_subnet.subnet2.id
-}
+# data "aws_subnet" "subnet2" {
+#   id = aws_subnet.subnet2.id
+# }
 
-resource "aws_security_group" "lambda_sg" {
-  vpc_id      = aws_vpc.main.id
-  name        = "lambda-security-group"
-  description = "Security group for Lambda"
-}
+# resource "aws_security_group" "lambda_sg" {
+#   vpc_id      = aws_vpc.main.id
+#   name        = "lambda-security-group"
+#   description = "Security group for Lambda"
+# }
 
-resource "aws_security_group" "aurora_sg" {
-  vpc_id      = aws_vpc.main.id
-  name        = "aurora-security-group"
-  description = "Allow Lambda access to Aurora"
+# resource "aws_security_group" "aurora_sg" {
+#   vpc_id      = aws_vpc.main.id
+#   name        = "aurora-security-group"
+#   description = "Allow Lambda access to Aurora"
 
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.lambda_sg.id]
-  }
-}
+#   ingress {
+#     from_port       = 5432
+#     to_port         = 5432
+#     protocol        = "tcp"
+#     security_groups = [aws_security_group.lambda_sg.id]
+#   }
+# }
 
-resource "aws_db_subnet_group" "aurora_subnet_group" {
-  name       = "aurora-subnet-group"
-  subnet_ids = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
-}
+# resource "aws_db_subnet_group" "aurora_subnet_group" {
+#   name       = "aurora-subnet-group"
+#   subnet_ids = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+# }
 
-resource "aws_rds_cluster" "aurora" {
+resource "aws_rds_cluster" "ven_aurora" {
   cluster_identifier      = "vendors-aurora"
   engine                  = "aurora-postgresql"
-  engine_version          = "15"
+  engine_mode             = "provisioned"
+  engine_version          = "13.9"
   database_name           = "postgres"
   master_username         = "vendorlabs_admin"
   master_password         = "vlabs2025"
-  vpc_security_group_ids  = [aws_security_group.aurora_sg.id]
-  db_subnet_group_name    = aws_db_subnet_group.aurora_subnet_group.name
-  skip_final_snapshot     = true
+  # vpc_security_group_ids  = [aws_security_group.aurora_sg.id]
+  # db_subnet_group_name    = aws_db_subnet_group.aurora_subnet_group.name
+  storage_encrypted       = true
+
   serverlessv2_scaling_configuration {
     min_capacity = 0.5
     max_capacity = 4
   }
+}
+
+resource "aws_rds_cluster_instance" "example1" {
+  cluster_identifier = aws_rds_cluster.ven_aurora.id
+  instance_class     = "db.serverless"
+  engine             = aws_rds_cluster.ven_aurora.engine
+  engine_version     = aws_rds_cluster.ven_aurora.engine_version
+  publicly_accessible = true
 }
 
 resource "aws_iam_role" "lambda_role" {
@@ -109,16 +119,16 @@ resource "aws_lambda_function" "lambda" {
   timeout         = 10
   environment {
     variables = {
-      DB_HOST     = aws_rds_cluster.aurora.endpoint
+      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
       DB_USER     = "admin"
       DB_PASS     = "mysecretpassword"
       DB_NAME     = "postgres"
     }
   }
-  vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
-  }
+  # vpc_config {
+  #   security_group_ids = [aws_security_group.lambda_sg.id]
+  #   subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+  # }
 }
 
 # CloudWatch 3h lambda run. Uncomment if needed
@@ -142,7 +152,7 @@ resource "aws_lambda_function" "lambda" {
 # }
 
 output "aurora_endpoint" {
-  value = aws_rds_cluster.aurora.endpoint
+  value = aws_rds_cluster.ven_aurora.endpoint
 }
 
 resource "aws_ssm_parameter" "rss_last_published" {

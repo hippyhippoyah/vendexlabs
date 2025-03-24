@@ -3,7 +3,7 @@ CREATE TABLE rss_feeds (
     title TEXT,
     vendor TEXT,
     product TEXT,
-    explots TEXT,
+    exploits TEXT,
     url TEXT UNIQUE,
     published TIMESTAMP,
     summary TEXT
