@@ -59,8 +59,8 @@ resource "aws_rds_cluster" "ven_aurora" {
   engine_mode             = "provisioned"
   engine_version          = "13.9"
   database_name           = "postgres"
-  master_username         = "vendorlabs_admin"
-  master_password         = "vlabs2025"
+  master_username         = var.db_user
+  master_password         = var.db_pass
   # vpc_security_group_ids  = [aws_security_group.aurora_sg.id]
   # db_subnet_group_name    = aws_db_subnet_group.aurora_subnet_group.name
   storage_encrypted       = true
@@ -110,19 +110,54 @@ resource "aws_iam_policy_attachment" "lambda_vpc_access_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+resource "aws_iam_policy" "lambda_ssm_policy" {
+  name        = "lambda_ssm_policy"
+  description = "Policy for Lambda to access SSM parameters"
+  policy      = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter"
+      ],
+      "Resource": "arn:aws:ssm:us-east-1:*:parameter/rss/last_published"
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_iam_policy_attachment" "lambda_ssm_policy_attachment" {
+  name       = "lambda_ssm_policy_attachment"
+  roles      = [aws_iam_role.lambda_role.name]
+  policy_arn = aws_iam_policy.lambda_ssm_policy.arn
+}
+
+resource "aws_lambda_layer_version" "rss_layer" {
+  filename         = "../RSS-layers.zip"
+  layer_name       = "rss_layer"
+  compatible_runtimes = ["python3.9"]
+}
+
 resource "aws_lambda_function" "lambda" {
   function_name    = "lambda-RSS-handler"
   runtime         = "python3.9"
   role            = aws_iam_role.lambda_role.arn
-  handler         = "lambda_function.lambda_handler"
-  filename        = "../RSS.zip"
+  handler         = "parser.lambda_handler"
+  filename        = "../RSS-0.1.zip"
   timeout         = 10
+  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  # Todo: set DV to TF data vars. 
   environment {
     variables = {
       DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
-      DB_USER     = "admin"
-      DB_PASS     = "mysecretpassword"
+      DB_USER     = var.db_user
+      DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
+      RSS_FEED_URL = var.rss_feed_url
+      API_KEY     = var.api_key
     }
   }
   # vpc_config {

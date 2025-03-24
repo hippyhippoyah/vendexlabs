@@ -55,8 +55,8 @@ def query_vendor_extraction(summary, info="vendor"):
         "max_tokens": 500,
         "model": "accounts/fireworks/models/llama-v3-8b-instruct"
     })
-    
-    return response.json()["choices"][0]["message"]["content"]
+    return("VENDOR (IM BROKE)")
+    # return response.json()["choices"][0]["message"]["content"]
 
 def lambda_handler(event, context):
     try:
@@ -86,7 +86,6 @@ def lambda_handler(event, context):
                 """
                 INSERT INTO rss_feeds (title, vendor, product, published, exploits, summary, url)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (title) DO NOTHING;
                 """,
                 new_entries
             )
