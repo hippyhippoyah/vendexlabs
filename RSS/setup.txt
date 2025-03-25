@@ -1,0 +1,7 @@
+zip -r ../RSS-0.1b.zip .
+
+cd RSS_lambda_layers
+pip install -r ../requirements.txt -t python/lib/python3.9/site-packages/    
+
+psycopg2 lambda fix (get correct version): https://github.com/jetbridge/psycopg2-lambda-layer 
+

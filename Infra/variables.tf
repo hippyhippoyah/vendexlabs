@@ -19,3 +19,13 @@ variable "api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "lambda_version" {
+  description = "Lambda version"
+  type        = string
+}
+
+variable "subscription_version" {
+  description = "Subscription version"
+  type        = string
+}

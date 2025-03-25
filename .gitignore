@@ -3,3 +3,4 @@ parser-test.ipynb
 test.py
 RSS/python
 Infra/.terraform
+terraform.tfvars
