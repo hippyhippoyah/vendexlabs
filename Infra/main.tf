@@ -189,6 +189,13 @@ resource "aws_iam_policy_attachment" "lambda_vpc_access_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+# Yes im lazy, full access it is. Change later
+resource "aws_iam_policy_attachment" "attach_ses_full_access" {
+  name       = "attach_ses_full_access"
+  roles      = [aws_iam_role.vl_lambda_role.name]
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSESFullAccess"
+}
+
 resource "aws_lambda_layer_version" "rss_layer" {
   filename         = "../RSS-layers.zip"
   layer_name       = "rss_layer"
@@ -216,7 +223,7 @@ resource "aws_lambda_function" "lambda" {
   }
   vpc_config {
     security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    subnet_ids         = [data.aws_subnet.subnet1.id]
   }
 }
 
@@ -241,6 +248,29 @@ resource "aws_lambda_function" "subscribe_lambda" {
     security_group_ids = [aws_security_group.lambda_sg.id]
     subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
   }
+}
+
+resource "aws_eip" "nat_eip" {
+  domain = "vpc"
+}
+
+resource "aws_nat_gateway" "nat_gw" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.subnet2.id
+}
+
+resource "aws_route_table" "private_rt" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_gw.id
+  }
+}
+
+resource "aws_route_table_association" "subnet1_association" {
+  subnet_id      = aws_subnet.subnet1.id
+  route_table_id = aws_route_table.private_rt.id
 }
 
 output "aurora_endpoint" {
