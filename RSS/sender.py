@@ -12,7 +12,7 @@ def send_email_ses(recipients, subject, body):
         # Provide the contents of the email.
         print("Sending email to: " + str(recipients))
         response = ses_client.send_email(
-            Source='vendex@do-not-reply.com',
+            Source='do-not-reply@vendexlabs.com',
             Destination={
                 'ToAddresses': recipients,
             },
