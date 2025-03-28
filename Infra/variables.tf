@@ -9,9 +9,9 @@ variable "db_pass" {
   sensitive   = true
 }
 
-variable "rss_feed_url" {
+variable "rss_feed_urls" {
   description = "RSS feed URL"
-  type        = string
+  type        = list(string)
 }
 
 variable "api_key" {

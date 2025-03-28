@@ -1,7 +1,9 @@
 aws.txt
-parser-test.ipynb
 test.py
 RSS/python
 Infra/.terraform
 Infra/terraform.*
 .terraform.*
+*.zip
+*.ipynb
+RSS_lambda_layers/*

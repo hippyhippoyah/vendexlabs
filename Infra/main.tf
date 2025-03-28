@@ -197,7 +197,7 @@ resource "aws_iam_policy_attachment" "attach_ses_full_access" {
 }
 
 resource "aws_lambda_layer_version" "rss_layer" {
-  filename         = "../RSS-layers.zip"
+  filename         = "../RSS-layers-V2.zip"
   layer_name       = "rss_layer"
   compatible_runtimes = ["python3.9"]
 }
@@ -217,7 +217,7 @@ resource "aws_lambda_function" "lambda" {
       DB_USER     = var.db_user
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
-      RSS_FEED_URL = var.rss_feed_url
+      RSS_FEED_URLS = jsonencode(var.rss_feed_urls)
       API_KEY     = var.api_key
     }
   }

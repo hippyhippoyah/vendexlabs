@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import dateutil.parser
 from sender import send_email_ses
 import time
+from bs4 import BeautifulSoup
 
 # Read environment variables
 DB_HOST = os.getenv("DB_HOST")
@@ -15,90 +16,132 @@ DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
 
-RSS_FEED_URL = os.getenv("RSS_FEED_URL")
+RSS_FEED_URLS = os.getenv("RSS_FEED_URLS", "[]")
 PARAMETER_NAME = "/rss/last_published"
 API_URL = "https://api.openai.com/v1/chat/completions"
 API_KEY = os.getenv("API_KEY")
+FEEDS = json.loads(RSS_FEED_URLS)
 
-def query_vendor_extraction(summary, info="vendor"):
+def is_dupe(results, entry):
+    # Temp matching, TODO is to prompt chatbot for better matching
+    return True
+
+def query_AI_extraction(summary):
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    prompt = f"""Context: {summary}. 
-    Based on the Context, What {info} is affected?
-    Answer with one word being the {info} affected. 
-    Do not say anything else in the response."""
+    prompt = f"""Article: {summary}. 
+    Based on the Article, What compromised entity is mentioned in the summary?
+    What product is affected in the summary?
+    How much has this product been exploited?
+    Summary of the article in 100 words. 
+    Answer with only json format like this: {{"vendor": "vendorName", "product": "productName", "exploits": "", "summary":"summary"}}.
+    Do not say anything else in the response. If unsure, still answer in the same format but with null objects."""
     
     data = {
         "model": "gpt-4o-mini",
         "messages": [
             {"role": "user", "content": prompt}
         ],
-        "max_tokens": 100
+        "max_tokens": 300
     }
     
     response = requests.post(API_URL, headers=headers, json=data)
     response_json = response.json()
-    print(response_json["choices"][0]["message"]["content"])
-    return response_json["choices"][0]["message"]["content"]
+    return json.loads(response_json["choices"][0]["message"]["content"])
+
+def create_entries(feed, last_published):
+    new_entries = []
+    for url in FEEDS:
+        print("Parsing: " + url)
+        feed = feedparser.parse(url)   
+
+        for entry in feed.entries:
+            response = requests.get(entry.link)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            content = soup.select('article p') 
+            article_text = " ".join([p.get_text() for p in content])
+            entry_published = dateutil.parser.parse(entry.published) if hasattr(entry, 'published') else None
+            if entry_published and entry_published > last_published:
+                res = query_AI_extraction(article_text)
+                vendor = res.get('vendor')
+                if vendor is None:
+                    print("Skipping entry with unknown vendor")
+                    continue
+                vendor = vendor.upper()
+                product = res.get('product', 'Unknown')
+                exploits = res.get('exploits', 'None')
+                summary = res.get('summary', 'None')
+                img = entry.enclosures[0]['url'] if entry.enclosures else None
+                new_entries.append((entry.title, vendor, product, entry_published, exploits, summary, entry.link, img))
+    return new_entries
+
 
 def lambda_handler(event, context):
     print("Starting RSS feed parser...")
     try:
-        # Get the current time and the time x hours ago
-        current_time = datetime.utcnow().replace(tzinfo=timezone.utc)
+        current_time = datetime.now(timezone.utc).replace(tzinfo=timezone.utc)
         hours_ago = event.get("hours", 3)
         last_published = current_time - timedelta(hours=hours_ago)
-
-
-        feed = feedparser.parse(RSS_FEED_URL)
-        new_entries = []
-        print("Parsing feed entries...")
-        print("first is: ", feed.entries[0])    
-
-        for entry in feed.entries:
-            entry_published = dateutil.parser.parse(entry.published) if hasattr(entry, 'published') else None
-            if entry_published and entry_published > last_published:
-                vendor = query_vendor_extraction(entry.summary)
-                product = entry.get('product', 'Unknown')
-                exploits = entry.get('exploits', 'None')
-                new_entries.append((entry.title, vendor, product, entry_published, exploits, entry.summary, entry.link))
-
-        emails_count = 0
+        new_entries = create_entries(FEEDS, last_published)
         # Insert only new entries
-        print("Inserting new entries...")
-        if new_entries:
-            conn = psycopg2.connect(
-                host=DB_HOST,
-                user=DB_USER,
-                password=DB_PASS,
-                dbname=DB_NAME,
-                connect_timeout=10 
-            )
-            cursor = conn.cursor()
-            cursor.executemany(
+        if not new_entries:
+            return {"statusCode": 200, "body": f"No new entries found."}
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASS,
+            dbname=DB_NAME,
+            connect_timeout=10 
+        )
+        cursor = conn.cursor()
+        # Dedupe
+        print("Deduping entries...")
+        one_month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+        filtered_entries = []
+        for entry in new_entries:
+            vendor = entry[1] or "Unknown"
+            cursor.execute(
                 """
-                INSERT INTO rss_feeds (title, vendor, product, published, exploits, summary, url)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (url) DO NOTHING;
+                SELECT title, summary FROM rss_feeds 
+                WHERE published > %s AND vendor = %s
                 """,
-                new_entries
+                (one_month_ago, vendor)
             )
-            for entry in new_entries:
-                title, vendor, product, published, exploits, summary, url = entry
-                cursor.execute("SELECT emails FROM vendors WHERE vendor = %s", (vendor,))
-                results = cursor.fetchall()
-                if results:
-                    emails_count += len(results)
-                    emails = [row[0] for row in results]
-                    print(f"Sending email to: {emails}")
-                    subject = f"New RSS Feed Entry for {vendor}"
-                    body = f"Title: {title}\nVendor: {vendor}\nProduct: {product}\nPublished: {published}\nExploits: {exploits}\nSummary: {summary}\nURL: {url}"
-                    send_email_ses(emails, subject, body)
-                    time.sleep(1)
+            results = cursor.fetchall()
+            if not results:  # If no matches, keep the entry
+                filtered_entries.append(entry)
+            elif not is_dupe(results, entry):
+                filtered_entries.append(entry)
+
+        new_entries = filtered_entries
+
+        print("Inserting entries...")
+        cursor.executemany(
+            """
+            INSERT INTO rss_feeds (title, vendor, product, published, exploits, summary, url, img)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (url) DO NOTHING;
+            """,
+            new_entries
+        )
+        emails_count = 0
+        for entry in new_entries:
+            print(entry)
+            vendor = entry[1] or "Unknown"
+            cursor.execute("SELECT emails FROM vendors WHERE vendor = %s", (vendor,))
+            results = cursor.fetchall()
+            if results:
+                emails_count += len(results)
+                emails = [row[0] for row in results]
+                print(f"Sending email to: {emails}")
+                send_email_ses(emails, entry)
+                time.sleep(1) # I honestly don't know if this is needed
 
 
-            conn.commit()
-            cursor.close()
-            conn.close()
+        conn.commit()
+        cursor.close()
+        conn.close()
 
         return {"statusCode": 200, "body": f"Inserted {len(new_entries)} new entries. Sent {emails_count} emails."}
 
