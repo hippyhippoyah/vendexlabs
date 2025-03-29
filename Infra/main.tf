@@ -136,7 +136,7 @@ resource "aws_rds_cluster" "ven_aurora" {
   cluster_identifier      = "vendors-aurora"
   engine                  = "aurora-postgresql"
   engine_mode             = "provisioned"
-  engine_version          = "13.9"
+  engine_version          = "13.12"
   database_name           = "postgres"
   master_username         = var.db_user
   master_password         = var.db_pass
@@ -271,6 +271,33 @@ resource "aws_route_table" "private_rt" {
 resource "aws_route_table_association" "subnet1_association" {
   subnet_id      = aws_subnet.subnet1.id
   route_table_id = aws_route_table.private_rt.id
+}
+
+
+# Adjust frequency of execution here
+resource "aws_cloudwatch_event_rule" "rss_handler_schedule" {
+  name        = "rss-handler-schedule"
+  description = "Trigger RSS handler Lambda every 3 hours"
+  schedule_expression = "rate(3 hours)"
+  state = "ENABLED"
+}
+
+resource "aws_cloudwatch_event_target" "rss_handler_target" {
+  rule      = aws_cloudwatch_event_rule.rss_handler_schedule.name
+  target_id = "rss-handler-lambda"
+  arn       = aws_lambda_function.lambda.arn
+
+  input = jsonencode({
+    hours = 3
+  })
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_to_invoke_rss_handler" {
+  statement_id  = "AllowExecutionFromCloudWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.rss_handler_schedule.arn
 }
 
 output "aurora_endpoint" {

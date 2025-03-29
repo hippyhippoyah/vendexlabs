@@ -44,9 +44,18 @@ def query_AI_extraction(summary):
         "max_tokens": 300
     }
     
-    response = requests.post(API_URL, headers=headers, json=data)
-    response_json = response.json()
-    return json.loads(response_json["choices"][0]["message"]["content"])
+    try:
+        response = requests.post(API_URL, headers=headers, json=data)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        response_content = response.content.decode('utf-8')
+        response_json = json.loads(response_content)
+        return json.loads(response_json["choices"][0]["message"]["content"])
+    except requests.exceptions.RequestException as e:
+        print(f"HTTP Request failed: {e}")
+        return {"vendor": None, "product": None, "exploits": None, "summary": None}
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"Error parsing API response: {e}")
+        return {"vendor": None, "product": None, "exploits": None, "summary": None}
 
 def create_entries(feed, last_published):
     new_entries = []
@@ -55,16 +64,20 @@ def create_entries(feed, last_published):
         feed = feedparser.parse(url)   
 
         for entry in feed.entries:
-            response = requests.get(entry.link)
+            response = requests.get(entry.link, timeout=10)
+            if response.status_code != 200:
+                print(f"Failed to fetch article: {entry.link}, status code: {response.status_code}")
+                continue
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            content = soup.select('article p') 
+            content = soup.find_all('p')
             article_text = " ".join([p.get_text() for p in content])
             entry_published = dateutil.parser.parse(entry.published) if hasattr(entry, 'published') else None
             if entry_published and entry_published > last_published:
                 res = query_AI_extraction(article_text)
-                vendor = res.get('vendor')
+                print(res)
+                vendor = res.get('vendor', None)
                 if vendor is None:
                     print("Skipping entry with unknown vendor")
                     continue
@@ -74,6 +87,8 @@ def create_entries(feed, last_published):
                 summary = res.get('summary', 'None')
                 img = entry.enclosures[0]['url'] if entry.enclosures else None
                 new_entries.append((entry.title, vendor, product, entry_published, exploits, summary, entry.link, img))
+            else:
+                continue
     return new_entries
 
 
