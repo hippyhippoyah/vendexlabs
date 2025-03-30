@@ -23,7 +23,7 @@ def lambda_handler(event, context):
     for vendor in vendors:
         cursor.execute(
             "INSERT INTO vendors (vendor, emails, date_subscribed) VALUES (%s, %s, %s)",
-            (vendor.upper(), email, datetime.now())
+            (vendor.upper().split()[0], email, datetime.now())
         )
 
     conn.commit()

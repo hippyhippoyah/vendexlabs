@@ -24,6 +24,31 @@ FEEDS = json.loads(RSS_FEED_URLS)
 
 def is_dupe(results, entry):
     # Temp matching, TODO is to prompt chatbot for better matching
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    prompt = f"""Article: {entry[0]}.
+    Is the given article a duplicate of the following articles?
+    {results}.
+    Answer with only "YES" or "NO".
+    """
+    data = {
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 300
+    }
+
+    try:
+        response = requests.post(API_URL, headers=headers, json=data)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        response_content = response.content.decode('utf-8')
+        response_json = json.loads(response_content)
+        response_text = response_json["choices"][0]["message"]["content"]
+        if "YES" in response_text.upper():
+            return True
+    except requests.exceptions.RequestException as e:
+        print(f"HTTP Dedupe Request failed: {e}")
+        return False
     return True
 
 def query_AI_extraction(summary):
@@ -77,7 +102,7 @@ def create_entries(feed, last_published):
             if entry_published and entry_published > last_published:
                 res = query_AI_extraction(article_text)
                 print(res)
-                vendor = res.get('vendor', None)
+                vendor = res.get('vendor', None).split()[0] if res.get('vendor', None) else None
                 if vendor is None:
                     print("Skipping entry with unknown vendor")
                     continue
