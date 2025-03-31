@@ -62,3 +62,4 @@ V1.1: Added parsing for 8 feeds sending email to subscribers every 3h for their 
 - Add frontend
 - modify table to fit needs
 - Still very much a WIP will clean up Repo before public (random files not needed and might be sensitive)
+- Better matching for company, use cleanco

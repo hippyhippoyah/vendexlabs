@@ -197,7 +197,7 @@ resource "aws_iam_policy_attachment" "attach_ses_full_access" {
 }
 
 resource "aws_lambda_layer_version" "rss_layer" {
-  filename         = "../RSS-layers-V2.zip"
+  filename         = "../RSS-layers-V3.zip"
   layer_name       = "rss_layer"
   compatible_runtimes = ["python3.9"]
 }

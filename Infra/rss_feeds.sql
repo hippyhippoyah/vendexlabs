@@ -18,3 +18,6 @@ CREATE TABLE vendors (
     date_subscribed TIMESTAMP
 )
 
+CREATE UNIQUE INDEX idx_vendor_email ON vendors (vendor, emails);
+
+-- This should be optimized (TODO)

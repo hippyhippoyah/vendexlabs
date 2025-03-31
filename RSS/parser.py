@@ -9,6 +9,7 @@ import dateutil.parser
 from sender import send_email_ses
 import time
 from bs4 import BeautifulSoup
+from cleanco import basename
 
 # Read environment variables
 DB_HOST = os.getenv("DB_HOST")
@@ -45,6 +46,7 @@ def is_dupe(results, entry):
         response_json = json.loads(response_content)
         response_text = response_json["choices"][0]["message"]["content"]
         if "YES" in response_text.upper():
+            print("Duplicate found: " + entry[0])
             return True
     except requests.exceptions.RequestException as e:
         print(f"HTTP Dedupe Request failed: {e}")
@@ -89,7 +91,7 @@ def create_entries(feed, last_published):
         feed = feedparser.parse(url)   
 
         for entry in feed.entries:
-            response = requests.get(entry.link, timeout=10)
+            response = requests.get(entry.link, timeout=10, headers={"User-Agent": "Chrome/58.0.3029.110 Safari/537.3"})
             if response.status_code != 200:
                 print(f"Failed to fetch article: {entry.link}, status code: {response.status_code}")
                 continue
@@ -102,8 +104,10 @@ def create_entries(feed, last_published):
             if entry_published and entry_published > last_published:
                 res = query_AI_extraction(article_text)
                 print(res)
-                vendor = res.get('vendor', None).split()[0] if res.get('vendor', None) else None
-                if vendor is None:
+                vendor = res.get('vendor', None)
+                if vendor is not None:
+                    vendor = basename(vendor)
+                else:
                     print("Skipping entry with unknown vendor")
                     continue
                 vendor = vendor.upper()
