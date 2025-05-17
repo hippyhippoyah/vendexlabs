@@ -81,7 +81,7 @@ def query_AI_extraction(summary):
         print(f"HTTP Request failed: {e}")
         return {"vendor": None, "product": None, "exploits": None, "summary": None}
     except (json.JSONDecodeError, KeyError) as e:
-        print(f"Error parsing API response: {e}")
+        print(f"Error parsing API response: {e} + {response_content}")
         return {"vendor": None, "product": None, "exploits": None, "summary": None}
 
 def create_entries(feed, last_published):
@@ -106,11 +106,10 @@ def create_entries(feed, last_published):
                 print(res)
                 vendor = res.get('vendor', None)
                 if vendor is not None:
-                    vendor = basename(vendor)
+                    vendor = basename(vendor).upper()
                 else:
                     print("Skipping entry with unknown vendor")
                     continue
-                vendor = vendor.upper()
                 product = res.get('product', 'Unknown')
                 exploits = res.get('exploits', 'None')
                 summary = res.get('summary', 'None')
@@ -122,12 +121,12 @@ def create_entries(feed, last_published):
 
 
 def lambda_handler(event, context):
-    print("Starting RSS feed parser...")
     try:
         current_time = datetime.now(timezone.utc).replace(tzinfo=timezone.utc)
         hours_ago = event.get("hours", 3)
         last_published = current_time - timedelta(hours=hours_ago)
         new_entries = create_entries(FEEDS, last_published)
+        print("Since last published: " + str(last_published))
         # Insert only new entries
         if not new_entries:
             return {"statusCode": 200, "body": f"No new entries found."}

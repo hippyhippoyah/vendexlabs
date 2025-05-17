@@ -25,21 +25,22 @@ def lambda_handler(event, context):
     cursor = conn.cursor()
 
     for vendor in vendors:
+        format_vendor = basename(vendor).upper()
         try:
             cursor.execute(
                 "INSERT INTO vendors (vendor, emails, date_subscribed) VALUES (%s, %s, %s)",
-                (basename(vendor), email, datetime.now())
+                (format_vendor, email, datetime.now())
             )
-            subscribed.append(vendor)
+            subscribed.append(format_vendor)
         except psycopg2.IntegrityError:
             # If the email is already subscribed to the vendor, skip it
             conn.rollback()
-            already_subscribed.append(vendor)
+            already_subscribed.append(format_vendor)
         except Exception as e:
             conn.rollback()
             return {
                 'statusCode': 500,
-                'body': json.dumps(f'Error subscribing to {vendor}: {str(e)}')
+                'body': json.dumps(f'Error subscribing to {format_vendor}: {str(e)}')
             }
 
 

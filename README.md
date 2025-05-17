@@ -57,9 +57,7 @@ subscription_version = "your_version"
 V1.1: Added parsing for 8 feeds sending email to subscribers every 3h for their subscribed vendors. 
 
 ## Todo for next version
-- Fix Deduping and add additional finds to table
-- Add logo
+- Add additional finds to table
 - Add frontend
 - modify table to fit needs
 - Still very much a WIP will clean up Repo before public (random files not needed and might be sensitive)
-- Better matching for company, use cleanco

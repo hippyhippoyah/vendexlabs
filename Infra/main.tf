@@ -43,48 +43,10 @@ resource "aws_route_table" "public_rt" {
   }
 }
 
-# Associate the Route Table with subnet2
+# Associate the Route Table with subnet2 (public subnet)
 resource "aws_route_table_association" "subnet2_association" {
   subnet_id      = aws_subnet.subnet2.id
   route_table_id = aws_route_table.public_rt.id
-}
-
-# Create a security group for the bastion host
-resource "aws_security_group" "bastion_sg" {
-  vpc_id = aws_vpc.main.id
-  name   = "bastion-security-group"
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-resource "aws_key_pair" "bastion_key" {
-  key_name   = "bastion-key"
-  public_key = file("/Users/johndoe/Downloads/vendex.pub") 
-}
-
-# Launch an EC2 instance in subnet2
-resource "aws_instance" "bastion" {
-  ami           = "ami-08b5b3a93ed654d19"
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.subnet2.id
-  vpc_security_group_ids = [aws_security_group.bastion_sg.id]
-  associate_public_ip_address = true
-  key_name      = aws_key_pair.bastion_key.key_name
-  tags = {
-    Name = "BastionHost"
-  }
 }
 
 resource "aws_security_group" "lambda_sg" {
@@ -145,17 +107,9 @@ resource "aws_rds_cluster" "ven_aurora" {
   storage_encrypted       = true
 
   serverlessv2_scaling_configuration {
-    min_capacity = 0.5
-    max_capacity = 4
+    min_capacity = 0.5 # Lowered from 0.5 to 0.25 for cost savings
+    max_capacity = 2    # Lowered max capacity as well
   }
-}
-
-resource "aws_rds_cluster_instance" "example1" {
-  cluster_identifier = aws_rds_cluster.ven_aurora.id
-  instance_class     = "db.serverless"
-  engine             = aws_rds_cluster.ven_aurora.engine
-  engine_version     = aws_rds_cluster.ven_aurora.engine_version
-  publicly_accessible = false
 }
 
 resource "aws_iam_role" "vl_lambda_role" {
@@ -250,6 +204,7 @@ resource "aws_lambda_function" "subscribe_lambda" {
   }
 }
 
+# NAT Gateway and EIP for Lambda internet access
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
 }
@@ -303,3 +258,6 @@ resource "aws_lambda_permission" "allow_cloudwatch_to_invoke_rss_handler" {
 output "aurora_endpoint" {
   value = aws_rds_cluster.ven_aurora.endpoint
 }
+
+# Consider using SSM Session Manager for admin access instead of a bastion host.
+#      https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html
