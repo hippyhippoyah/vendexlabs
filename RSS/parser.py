@@ -60,15 +60,18 @@ def query_AI_extraction(summary):
     What product is affected in the summary?
     How much has this product been exploited?
     Summary of the article in 100 words. 
-    Answer with only json format like this: {{"vendor": "vendorName", "product": "productName", "exploits": "", "summary":"summary"}}.
-    Do not say anything else in the response. If unsure, still answer in the same format but with null objects."""
+    """
+    system_prompt = f"""You are a JSON only responder. Respond with a format like this: {{"vendor": "vendorName", "product": "productName", "exploits": "", "summary":"summary"}}
+    Do not say anything else in the response. Do not include explanations, apologies, or any text outside of the JSON block. If unsure, still answer in the same format but with null objects."""
     
     data = {
         "model": "gpt-4o-mini",
         "messages": [
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
+            {"role": "system", "content": system_prompt}
         ],
-        "max_tokens": 300
+        "temperature":0,
+        "max_tokens": 500
     }
     
     try:
@@ -140,7 +143,7 @@ def lambda_handler(event, context):
         cursor = conn.cursor()
         # Dedupe
         print("Deduping entries...")
-        one_month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+        one_month_ago = datetime.now(timezone.utc) - timedelta(days=60)
         filtered_entries = []
         for entry in new_entries:
             vendor = entry[1] or "Unknown"
@@ -172,14 +175,17 @@ def lambda_handler(event, context):
         for entry in new_entries:
             print(entry)
             vendor = entry[1] or "Unknown"
+            send_email_ses(["vendexlabs+notification@gmail.com"], entry) # Send do test email
             cursor.execute("SELECT emails FROM vendors WHERE vendor = %s", (vendor,))
             results = cursor.fetchall()
             if results:
                 emails_count += len(results)
                 emails = [row[0] for row in results]
                 print(f"Sending email to: {emails}")
-                send_email_ses(emails, entry)
-                time.sleep(1) # I honestly don't know if this is needed
+                for email in emails:
+                    send_email_ses([email], entry)
+                    # time.sleep(1) # There is a limit of 14/sec, have to check. 
+            
 
 
         conn.commit()

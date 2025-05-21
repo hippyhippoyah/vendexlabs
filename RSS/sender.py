@@ -4,7 +4,7 @@ from botocore.exceptions import ClientError
 
 SES_REGION = 'us-east-1'
 SENDER_EMAIL = 'do-not-reply@notification.vendexlabs.com'
-LOGO_URL = "https://i.imgur.com/7WiAVTV.png" # Change later
+LOGO_URL = "https://vendexlabstest.s3.us-east-1.amazonaws.com/logo.png"
 
 def send_email_ses(recipients, entry):
     title, vendor, product, published, exploits, summary, url, img = entry
@@ -25,11 +25,11 @@ def send_email_ses(recipients, entry):
                     background-size: contain;
                     background-repeat: no-repeat;
                     background-position: center;
-                    height: 150px; /* Adjust the height of the logo banner */
+                    height: 100px; /* Adjust the height of the logo banner */
                     width: 100%;
                 }}
                 .content {{ padding: 20px; }}
-                .footer {{ margin-top:20px; font-size:12px; color:#777; }}
+                .footer {{ margin-top:20px; font-size:12px; color:#777; text-align: center; }}
                 .image-container {{
                     text-align: center;
                     margin: 20px 0;
@@ -42,14 +42,16 @@ def send_email_ses(recipients, entry):
                     <div class="logo-banner"></div>
                 </div>
                 <div class="content">
-                    <p><em>Notification from Vendex Labs</em></p>
-                    <p><strong>Published:</strong> {published}</p>
+                    <p><em>Notification from VendexLabs</em></p>
+                    <p><strong>Vendor Product:</strong> {vendor} {product}</p>
+                    <p><strong>Published Date:</strong> {published}</p>
                     <p><strong>Summary:</strong> {summary}</p>
                     <div class="image-container">
-                        <img src="{img}" alt="Image" style="max-width:100%; border-radius:8px;">
+                        <img src="{img}" alt="Image" style="max-width:50%; border-radius:8px;">
                     </div>
-                    <p><a href="{url}">Read more</a></p>
-                    <p class="footer">This email was sent for {vendor} alert.</p>
+                    <p>Reference URL: <a href="{url}">{url}</a></p>
+                    <p class="footer">Contact: info@vendexlabs.com</p>
+                    <p class="footer"> Copyright 2025 VendexLabs.  All rights reserved. </p>
                 </div>
             </div>
         </body>
