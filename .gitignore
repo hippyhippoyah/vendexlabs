@@ -6,4 +6,4 @@ Infra/terraform.*
 .terraform.*
 *.zip
 *.ipynb
-RSS_lambda_layers/*
+lambda_layers/*

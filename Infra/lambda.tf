@@ -71,34 +71,11 @@ resource "aws_lambda_function" "subscribe_lambda" {
   function_name    = "lambda-subscribe-handler"
   runtime         = "python3.9"
   role            = aws_iam_role.vl_lambda_role.arn
-  handler         = "subscribe.lambda_handler"
-  filename        = "../Subscription-${var.subscription_version}.zip"
+  handler         = "subscription_manager.lambda_handler"
+  filename        = "../Subscription-V${var.subscription_version}.zip"
   timeout         = 120
   memory_size     = 1024
   layers          = [aws_lambda_layer_version.rss_layer.arn]
-  environment {
-    variables = {
-      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
-      DB_USER     = var.db_user
-      DB_PASS     = var.db_pass
-      DB_NAME     = "postgres"
-    }
-  }
-  vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
-  }
-}
-
-resource "aws_lambda_function" "get_subscriptions_lambda" {
-  function_name    = "lambda-get-subscriptions-handler"
-  runtime          = "python3.9"
-  role             = aws_iam_role.vl_lambda_role.arn
-  handler          = "get_subscriptions.lambda_handler"
-  filename         = "../get_subscriptionsV1.zip"
-  timeout          = 120
-  memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
   environment {
     variables = {
       DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
