@@ -97,7 +97,7 @@ resource "aws_rds_cluster" "ven_aurora" {
   cluster_identifier      = "vendors-aurora"
   engine                  = "aurora-postgresql"
   engine_mode             = "provisioned"
-  engine_version          = "13.12"
+  engine_version          = "13.18"
   database_name           = "postgres"
   master_username         = var.db_user
   master_password         = var.db_pass
@@ -122,6 +122,3 @@ resource "aws_rds_cluster_instance" "aurora_instance" {
 output "aurora_endpoint" {
   value = aws_rds_cluster.ven_aurora.endpoint
 }
-
-# Consider using SSM Session Manager for admin access instead of a bastion host.
-#      https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html

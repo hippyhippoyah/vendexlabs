@@ -29,3 +29,8 @@ variable "subscription_version" {
   description = "Subscription version"
   type        = string
 }
+
+variable "vendor_info_version" {
+  description = "Vendor info version"
+  type        = string
+}

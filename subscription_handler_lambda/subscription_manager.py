@@ -1,13 +1,9 @@
-import os
 import json
-import psycopg2
 from datetime import datetime
 from cleanco import basename
-
-DB_HOST = os.getenv("DB_HOST")
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_NAME = os.getenv("DB_NAME")
+from peewee import IntegrityError
+from config import db
+from models import Subscription
 
 def get_user_email(event):
     claims = None
@@ -21,37 +17,29 @@ def get_user_email(event):
     return claims.get('email')
 
 def add_subscriptions(email, vendors):
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASS,
-        dbname=DB_NAME
-    )
+    db.connect(reuse_if_open=True)
     subscribed = []
     already_subscribed = []
-    cursor = conn.cursor()
     for vendor in vendors:
         format_vendor = basename(vendor).upper()
         try:
-            cursor.execute(
-                "INSERT INTO vendors (vendor, emails, date_subscribed) VALUES (%s, %s, %s)",
-                (format_vendor, email, datetime.now())
+            Subscription.create(
+                vendor=format_vendor,
+                emails=email,
+                date_subscribed=datetime.now()
             )
             subscribed.append(format_vendor)
-        except psycopg2.IntegrityError:
-            conn.rollback()
+        except IntegrityError:
+            db.rollback()
             already_subscribed.append(format_vendor)
         except Exception as e:
-            conn.rollback()
-            cursor.close()
-            conn.close()
+            db.rollback()
+            db.close()
             return {
                 'statusCode': 500,
                 'body': json.dumps(f'Error subscribing to {format_vendor}: {str(e)}')
             }
-    conn.commit()
-    cursor.close()
-    conn.close()
+    db.close()
     return {
         'statusCode': 200,
         'body': json.dumps({
@@ -60,31 +48,20 @@ def add_subscriptions(email, vendors):
     }
 
 def get_subscriptions(email):
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASS,
-        dbname=DB_NAME
-    )
-    cursor = conn.cursor()
+    db.connect(reuse_if_open=True)
     try:
-        cursor.execute(
-            "SELECT vendor, date_subscribed FROM vendors WHERE emails = %s",
-            (email,)
-        )
+        query = Subscription.select().where(Subscription.emails == email)
         vendors = [
-            {"name": row[0], "date": row[1].isoformat() if row[1] else None}
-            for row in cursor.fetchall()
+            {"name": row.vendor, "date": row.date_subscribed.isoformat() if row.date_subscribed else None}
+            for row in query
         ]
     except Exception as e:
-        cursor.close()
-        conn.close()
+        db.close()
         return {
             'statusCode': 500,
             'body': json.dumps(f'Error fetching subscriptions: {str(e)}')
         }
-    cursor.close()
-    conn.close()
+    db.close()
     return {
         'statusCode': 200,
         'body': json.dumps({
@@ -94,28 +71,20 @@ def get_subscriptions(email):
     }
 
 def delete_subscriptions(email, vendors):
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASS,
-        dbname=DB_NAME
-    )
-    cursor = conn.cursor()
+    db.connect(reuse_if_open=True)
     deleted = []
     not_found = []
     for vendor in vendors:
         format_vendor = basename(vendor).upper()
-        cursor.execute(
-            "DELETE FROM vendors WHERE vendor = %s AND emails = %s RETURNING vendor",
-            (format_vendor, email)
+        query = Subscription.delete().where(
+            (Subscription.vendor == format_vendor) & (Subscription.emails == email)
         )
-        if cursor.rowcount > 0:
+        rows_deleted = query.execute()
+        if rows_deleted > 0:
             deleted.append(format_vendor)
         else:
             not_found.append(format_vendor)
-    conn.commit()
-    cursor.close()
-    conn.close()
+    db.close()
     return {
         'statusCode': 200,
         'body': json.dumps({

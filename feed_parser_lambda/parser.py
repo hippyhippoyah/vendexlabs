@@ -1,30 +1,28 @@
+# --- Standard library imports ---
 import os
-import psycopg2
-import feedparser
 import json
-import boto3
-import requests
 from datetime import datetime, timedelta, timezone
+
+# --- Third-party imports ---
+import requests
+import feedparser
 import dateutil.parser
-from sender import send_email_ses
-import time
 from bs4 import BeautifulSoup
 from cleanco import basename
+import peewee
 
-# Read environment variables
-DB_HOST = os.getenv("DB_HOST")
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_NAME = os.getenv("DB_NAME")
+# --- Local imports ---
+from sender import send_email_ses
+from models import db, RSSFeed, Subscription
 
-RSS_FEED_URLS = os.getenv("RSS_FEED_URLS", "[]")
-PARAMETER_NAME = "/rss/last_published"
+# --- Configuration ---
 API_URL = "https://api.openai.com/v1/chat/completions"
 API_KEY = os.getenv("API_KEY")
+RSS_FEED_URLS = os.getenv("RSS_FEED_URLS", "[]")
 FEEDS = json.loads(RSS_FEED_URLS)
 
-def is_dupe(results, entry):
-    # Temp matching, TODO is to prompt chatbot for better matching
+def is_dupe(results, entry) -> bool:
+    """Check if entry is a duplicate using OpenAI API."""
     headers = {"Authorization": f"Bearer {API_KEY}"}
     prompt = f"""Article: {entry[0]}.
     Is the given article a duplicate of the following articles?
@@ -53,7 +51,8 @@ def is_dupe(results, entry):
         return False
     return True
 
-def query_AI_extraction(summary):
+def query_AI_extraction(summary: str) -> dict:
+    """Extract vendor, product, exploits, and summary from article using OpenAI API."""
     headers = {"Authorization": f"Bearer {API_KEY}"}
     prompt = f"""Article: {summary}. 
     Based on the Article, What compromised entity is mentioned in the summary?
@@ -87,28 +86,32 @@ def query_AI_extraction(summary):
         print(f"Error parsing API response: {e} + {response_content}")
         return {"vendor": None, "product": None, "exploits": None, "summary": None}
 
-def create_entries(feed, last_published):
-    new_entries = []
-    for url in FEEDS:
-        print("Parsing: " + url)
-        feed = feedparser.parse(url)   
+def fetch_article_text(url: str) -> str:
+    """Fetch and return the article text from a URL."""
+    response = requests.get(url, timeout=10, headers={"User-Agent": "Chrome/58.0.3029.110 Safari/537.3"})
+    if response.status_code != 200:
+        print(f"Failed to fetch article: {url}, status code: {response.status_code}")
+        return ""
+    soup = BeautifulSoup(response.content, 'html.parser')
+    content = soup.find_all('p')
+    return " ".join([p.get_text() for p in content])
 
+def create_entries(feeds: list, last_published: datetime) -> list:
+    """Parse feeds and return new entries since last_published."""
+    new_entries = []
+    for url in feeds:
+        print("Parsing: " + url)
+        feed = feedparser.parse(url)
         for entry in feed.entries:
-            response = requests.get(entry.link, timeout=10, headers={"User-Agent": "Chrome/58.0.3029.110 Safari/537.3"})
-            if response.status_code != 200:
-                print(f"Failed to fetch article: {entry.link}, status code: {response.status_code}")
+            article_text = fetch_article_text(entry.link)
+            if not article_text:
                 continue
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
-            content = soup.find_all('p')
-            article_text = " ".join([p.get_text() for p in content])
             entry_published = dateutil.parser.parse(entry.published) if hasattr(entry, 'published') else None
             if entry_published and entry_published > last_published:
                 res = query_AI_extraction(article_text)
                 print(res)
-                vendor = res.get('vendor', None)
-                if vendor is not None:
+                vendor = res.get('vendor')
+                if vendor:
                     vendor = basename(vendor).upper()
                 else:
                     print("Skipping entry with unknown vendor")
@@ -118,83 +121,75 @@ def create_entries(feed, last_published):
                 summary = res.get('summary', 'None')
                 img = entry.enclosures[0]['url'] if entry.enclosures else None
                 new_entries.append((entry.title, vendor, product, entry_published, exploits, summary, entry.link, img))
-            else:
-                continue
     return new_entries
 
+def dedupe_entries(new_entries: list, window_days: int = 60) -> list:
+    """Remove duplicate entries using AI deduplication."""
+    one_month_ago = datetime.now(timezone.utc) - timedelta(days=window_days)
+    filtered_entries = []
+    for entry in new_entries:
+        vendor = entry[1] or "Unknown"
+        results = list(
+            RSSFeed.select(RSSFeed.title, RSSFeed.summary)
+            .where(
+                (RSSFeed.published > one_month_ago) &
+                (RSSFeed.vendor == vendor)
+            )
+            .tuples()
+        )
+        if not results or not is_dupe(results, entry):
+            filtered_entries.append(entry)
+    return filtered_entries
+
+def insert_entries(entries: list):
+    """Insert entries into the database, skipping duplicates."""
+    for entry in entries:
+        try:
+            RSSFeed.create(
+                title=entry[0],
+                vendor=entry[1],
+                product=entry[2],
+                published=entry[3],
+                exploits=entry[4],
+                summary=entry[5],
+                url=entry[6],
+                img=entry[7]
+            )
+        except peewee.IntegrityError:
+            continue
+
+def send_notifications(entries: list) -> int:
+    """Send email notifications for new entries."""
+    emails_count = 0
+    for entry in entries:
+        vendor = entry[1] or "Unknown"
+        send_email_ses(["vendexlabs+notification@gmail.com"], entry)
+        results = Subscription.select(Subscription.emails).where(Subscription.vendor == vendor)
+        emails = [row.emails for row in results]
+        if emails:
+            emails_count += len(emails)
+            print(f"Sending email to: {emails}")
+            for email in emails:
+                send_email_ses([email], entry)
+    return emails_count
 
 def lambda_handler(event, context):
+    """AWS Lambda entrypoint."""
     try:
-        current_time = datetime.now(timezone.utc).replace(tzinfo=timezone.utc)
+        current_time = datetime.now(timezone.utc)
         hours_ago = event.get("hours", 3)
         last_published = current_time - timedelta(hours=hours_ago)
+        db.connect(reuse_if_open=True)
         new_entries = create_entries(FEEDS, last_published)
         print("Since last published: " + str(last_published))
-        # Insert only new entries
         if not new_entries:
             return {"statusCode": 200, "body": f"No new entries found."}
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASS,
-            dbname=DB_NAME,
-            connect_timeout=10 
-        )
-        cursor = conn.cursor()
-        # Dedupe
-        print("Deduping entries...")
-        one_month_ago = datetime.now(timezone.utc) - timedelta(days=60)
-        filtered_entries = []
-        for entry in new_entries:
-            vendor = entry[1] or "Unknown"
-            cursor.execute(
-                """
-                SELECT title, summary FROM rss_feeds 
-                WHERE published > %s AND vendor = %s
-                """,
-                (one_month_ago, vendor)
-            )
-            results = cursor.fetchall()
-            if not results:  # If no matches, keep the entry
-                filtered_entries.append(entry)
-            elif not is_dupe(results, entry):
-                filtered_entries.append(entry)
-
-        new_entries = filtered_entries
-
+        new_entries = dedupe_entries(new_entries)
         print("Inserting entries...")
-        cursor.executemany(
-            """
-            INSERT INTO rss_feeds (title, vendor, product, published, exploits, summary, url, img)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (url) DO NOTHING;
-            """,
-            new_entries
-        )
-        emails_count = 0
-        for entry in new_entries:
-            print(entry)
-            vendor = entry[1] or "Unknown"
-            send_email_ses(["vendexlabs+notification@gmail.com"], entry) # Send do test email
-            cursor.execute("SELECT emails FROM vendors WHERE vendor = %s", (vendor,))
-            results = cursor.fetchall()
-            if results:
-                emails_count += len(results)
-                emails = [row[0] for row in results]
-                print(f"Sending email to: {emails}")
-                for email in emails:
-                    send_email_ses([email], entry)
-                    # time.sleep(1) # There is a limit of 14/sec, have to check. 
-            
-
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-
+        insert_entries(new_entries)
+        emails_count = send_notifications(new_entries)
+        db.close()
         return {"statusCode": 200, "body": f"Inserted {len(new_entries)} new entries. Sent {emails_count} emails."}
-
     except Exception as e:
         print(f"Error in lambda_handler: {e}")
         return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
-    

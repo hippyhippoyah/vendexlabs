@@ -10,6 +10,14 @@ def send_email_ses(recipients, entry):
     title, vendor, product, published, exploits, summary, url, img = entry
     print("Sending email to:", recipients)
 
+    image_html = ""
+    if img:
+        image_html = f'''
+        <div class="image-container">
+            <img src="{img}" alt="Image" style="max-width:50%; border-radius:8px;">
+        </div>
+        '''
+
     body = f"""
     <html>
         <head>
@@ -46,9 +54,7 @@ def send_email_ses(recipients, entry):
                     <p><strong>Vendor Product:</strong> {vendor} {product}</p>
                     <p><strong>Published Date:</strong> {published}</p>
                     <p><strong>Summary:</strong> {summary}</p>
-                    <div class="image-container">
-                        <img src="{img}" alt="Image" style="max-width:50%; border-radius:8px;">
-                    </div>
+                    {image_html}
                     <p>Reference URL: <a href="{url}">{url}</a></p>
                     <p class="footer">Contact: info@vendexlabs.com</p>
                     <p class="footer"> Copyright 2025 VendexLabs.  All rights reserved. </p>

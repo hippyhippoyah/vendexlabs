@@ -37,19 +37,41 @@ resource "aws_iam_policy_attachment" "attach_ses_full_access" {
 }
 
 resource "aws_lambda_layer_version" "rss_layer" {
-  filename         = "../RSS-layers-V3.zip"
+  filename         = "../lambda_layersV1.zip"
   layer_name       = "rss_layer"
   compatible_runtimes = ["python3.9"]
 }
 
+# Archive the RSS Lambda source code
+data "archive_file" "rss_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../feed_parser_lambda"
+  output_path = "${path.module}/RSS-lambda.zip"
+}
+
+# Archive the Subscription Lambda source code
+data "archive_file" "subscription_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../subscription_handler_lambda"
+  output_path = "${path.module}/Subscription-lambda.zip"
+}
+
+# Archive the Vendor Info Lambda source code
+data "archive_file" "vendor_info_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../vendor_info_lambda"
+  output_path = "${path.module}/vendor_info-lambda.zip"
+}
+
 resource "aws_lambda_function" "lambda" {
   function_name    = "lambda-RSS-handler"
-  runtime         = "python3.9"
-  role            = aws_iam_role.vl_lambda_role.arn
-  handler         = "parser.lambda_handler"
-  filename        = "../RSS-${var.lambda_version}.zip"
-  timeout         = 240
-  memory_size     = 1024
+  runtime          = "python3.9"
+  role             = aws_iam_role.vl_lambda_role.arn
+  handler          = "parser.lambda_handler"
+  filename         = data.archive_file.rss_lambda_zip.output_path
+  source_code_hash = data.archive_file.rss_lambda_zip.output_base64sha256
+  timeout          = 240
+  memory_size      = 1024
   layers           = [aws_lambda_layer_version.rss_layer.arn]
   environment {
     variables = {
@@ -69,13 +91,14 @@ resource "aws_lambda_function" "lambda" {
 
 resource "aws_lambda_function" "subscribe_lambda" {
   function_name    = "lambda-subscribe-handler"
-  runtime         = "python3.9"
-  role            = aws_iam_role.vl_lambda_role.arn
-  handler         = "subscription_manager.lambda_handler"
-  filename        = "../Subscription-V${var.subscription_version}.zip"
-  timeout         = 120
-  memory_size     = 1024
-  layers          = [aws_lambda_layer_version.rss_layer.arn]
+  runtime          = "python3.9"
+  role             = aws_iam_role.vl_lambda_role.arn
+  handler          = "subscription_manager.lambda_handler"
+  filename         = data.archive_file.subscription_lambda_zip.output_path
+  source_code_hash = data.archive_file.subscription_lambda_zip.output_base64sha256
+  timeout          = 120
+  memory_size      = 1024
+  layers           = [aws_lambda_layer_version.rss_layer.arn]
   environment {
     variables = {
       DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
@@ -87,6 +110,31 @@ resource "aws_lambda_function" "subscribe_lambda" {
   vpc_config {
     security_group_ids = [aws_security_group.lambda_sg.id]
     subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+  }
+}
+
+resource "aws_lambda_function" "vendor_info_lambda" {
+  function_name    = "lambda-vendor-info-handler"
+  runtime          = "python3.9"
+  role             = aws_iam_role.vl_lambda_role.arn
+  handler          = "vendor_info.lambda_handler"
+  filename         = data.archive_file.vendor_info_lambda_zip.output_path
+  source_code_hash = data.archive_file.vendor_info_lambda_zip.output_base64sha256
+  timeout          = 450
+  memory_size      = 1024
+  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  environment {
+    variables = {
+      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
+      DB_USER     = var.db_user
+      DB_PASS     = var.db_pass
+      DB_NAME     = "postgres"
+      API_KEY     = var.api_key
+    }
+  }
+  vpc_config {
+    security_group_ids = [aws_security_group.lambda_sg.id]
+    subnet_ids         = [data.aws_subnet.subnet1.id]
   }
 }
 
