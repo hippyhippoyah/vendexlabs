@@ -1,14 +1,16 @@
 import json
 import boto3
 from botocore.exceptions import ClientError
+import logging
 
 SES_REGION = 'us-east-1'
 SENDER_EMAIL = 'do-not-reply@notification.vendexlabs.com'
 LOGO_URL = "https://vendexlabstest.s3.us-east-1.amazonaws.com/logo.png"
 
 def send_email_ses(recipients, entry):
-    title, vendor, product, published, exploits, summary, url, img = entry
-    print("Sending email to:", recipients)
+
+    title, vendor, product, published, exploits, summary, url, img, incident_type, affected_service, potentially_impacted_data, status = entry
+    logging.info(f"Sending email to: {recipients}")
 
     image_html = ""
     if img:
@@ -53,6 +55,10 @@ def send_email_ses(recipients, entry):
                     <p><em>Notification from VendexLabs</em></p>
                     <p><strong>Vendor Product:</strong> {vendor} {product}</p>
                     <p><strong>Published Date:</strong> {published}</p>
+                    <p><strong>Incident Type:</strong> {incident_type}</p>
+                    <p><strong>Affected Service:</strong> {affected_service}</p>
+                    <p><strong>Potentially Impacted Data:</strong> {potentially_impacted_data}</p>
+                    <p><strong>Status:</strong> {status}</p>
                     <p><strong>Summary:</strong> {summary}</p>
                     {image_html}
                     <p>Reference URL: <a href="{url}">{url}</a></p>
@@ -74,6 +80,6 @@ def send_email_ses(recipients, entry):
                 'Body': {'Html': {'Data': body}}
             }
         )
-        print("Email sent! Message ID:", response['MessageId'])
+        logging.info(f"Email sent! Message ID: {response['MessageId']}")
     except ClientError as e:
-        print("Error sending email:", e.response['Error']['Message'])
+        logging.error(f"Error sending email: {e.response['Error']['Message']}")

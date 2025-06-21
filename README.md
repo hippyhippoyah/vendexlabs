@@ -26,15 +26,7 @@ A simplified diagram of the main parts
    git clone https://github.com/hippyhippoyah/vendexlabs.git
    cd vendexlabs/
    ```
-2. Create Zip files for RSS, RSS_lambda_layers, and Subscription Lambda
-```
-zip -r ../RSS-v___.zip .
-```
-You will also need to package the requirements for the lambda for the lambda layers
-```
-pip install -r ../requirements.txt -t python/lib/python3.9/site-packages/    
-```
-3. Create a terraform.tfvars file
+2. Create a terraform.tfvars file
 
 ```
 db_user      = "your_info"
@@ -50,14 +42,16 @@ subscription_version = "your_version"
 4. run terraform apply
 5. You will need to connect to the bastion host (EC2 instance in public subnet) to initiallize the tables 
 (Sorry I forgot to add to the diagram), you will need to run the query in rss_feeds.sql.  
-6. Create API gateway in aws console with your custom needs connected to the subscription lambda. 
+6. To expose the lambda, configure your own API gateway and Cognito. Some lambdas like subscription manager require cognito and token parsing.
 
 
 ## Versions
 V1.1: Added parsing for 8 feeds sending email to subscribers every 3h for their subscribed vendors. 
+V1.2: Added dedupe handling
 
 ## Todo for next version
-- Add additional finds to table
-- Add frontend
-- modify table to fit needs
+- Move Infra out of VPC to reduce costs ($35/month NAT gateway)
+- Implement ORG manager endpoint
+- Finish Vendor Analysis Page and Parsing of Information
+- Restructure Lambdas to Add Admins, Orgs, and Tenants. (Currently only support for individuals and Tenants)
 - Still very much a WIP will clean up Repo before public (random files not needed and might be sensitive)

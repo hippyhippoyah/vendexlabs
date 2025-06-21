@@ -2,6 +2,7 @@
 import os
 import json
 from datetime import datetime, timedelta, timezone
+import logging
 
 # --- Third-party imports ---
 import requests
@@ -21,109 +22,121 @@ API_KEY = os.getenv("API_KEY")
 RSS_FEED_URLS = os.getenv("RSS_FEED_URLS", "[]")
 FEEDS = json.loads(RSS_FEED_URLS)
 
-def is_dupe(results, entry) -> bool:
-    """Check if entry is a duplicate using OpenAI API."""
+logging.basicConfig(level=logging.INFO)
+logging.getLogger().setLevel(logging.INFO)
+
+def call_openai_api(messages, max_tokens=300, temperature=0):
+    """Helper to call OpenAI API and return the response content."""
     headers = {"Authorization": f"Bearer {API_KEY}"}
+    data = {
+        "model": "gpt-4o-mini",
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature
+    }
+    try:
+        response = requests.post(API_URL, headers=headers, json=data)
+        response.raise_for_status()
+        response_json = response.json()
+        return response_json["choices"][0]["message"]["content"]
+    except Exception as e:
+        logging.error(f"OpenAI API call failed: {e}")
+        return None
+
+def is_dupe(results, entry):
+    """Check if entry is a duplicate using OpenAI API."""
     prompt = f"""Article: {entry[0]}.
     Is the given article a duplicate of the following articles?
     {results}.
     Answer with only "YES" or "NO".
     """
-    data = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 300
-    }
+    messages = [{"role": "user", "content": prompt}]
+    response_text = call_openai_api(messages)
+    if response_text and "YES" in response_text.upper():
+        logging.info(f"Duplicate found: {entry[0]}")
+        return True
+    return False
 
-    try:
-        response = requests.post(API_URL, headers=headers, json=data)
-        response.raise_for_status()  # Raise an exception for HTTP errors
-        response_content = response.content.decode('utf-8')
-        response_json = json.loads(response_content)
-        response_text = response_json["choices"][0]["message"]["content"]
-        if "YES" in response_text.upper():
-            print("Duplicate found: " + entry[0])
-            return True
-    except requests.exceptions.RequestException as e:
-        print(f"HTTP Dedupe Request failed: {e}")
-        return False
-    return True
-
-def query_AI_extraction(summary: str) -> dict:
-    """Extract vendor, product, exploits, and summary from article using OpenAI API."""
-    headers = {"Authorization": f"Bearer {API_KEY}"}
+def query_AI_extraction(summary):
+    """Extract vendor, product, exploits, summary, incident_type, affected_service, potentially_impacted_data, and status from article using OpenAI API."""
     prompt = f"""Article: {summary}. 
     Based on the Article, What compromised entity is mentioned in the summary?
     What product is affected in the summary?
     How much has this product been exploited?
-    Summary of the article in 100 words. 
+    Summary of the article in 100 words.
+    Incident Type: Potential unauthorized access or data exfiltration.
+    Affected Service: [Service Name].
+    Potentially Impacted Data: [Specify the type of data, e.g., customer information, login credentials, etc.]
+    Status: The incident is under active investigation, with immediate steps underway to mitigate potential impact.
     """
-    system_prompt = f"""You are a JSON only responder. Respond with a format like this: {{"vendor": "vendorName", "product": "productName", "exploits": "", "summary":"summary"}}
-    Do not say anything else in the response. Do not include explanations, apologies, or any text outside of the JSON block. If unsure, still answer in the same format but with null objects."""
-    
-    data = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "user", "content": prompt},
-            {"role": "system", "content": system_prompt}
-        ],
-        "temperature":0,
-        "max_tokens": 500
-    }
-    
+    system_prompt = (
+        'You are a JSON only responder. Respond with a format like this: '
+        '{"vendor": "vendorName", "product": "productName", "exploits": "", "summary":"summary", '
+        '"incident_type": "Potential unauthorized access or data exfiltration.", '
+        '"affected_service": "[Service Name]", '
+        '"potentially_impacted_data": "[Specify the type of data, e.g., customer information, login credentials, etc.]", '
+        '"status": "The incident is under active investigation, with immediate steps underway to mitigate potential impact."} '
+        'Do not say anything else in the response. Do not include explanations, apologies, or any text outside of the JSON block. '
+        'If unsure, still answer in the same format but with null objects.'
+    )
+    messages = [
+        {"role": "user", "content": prompt},
+        {"role": "system", "content": system_prompt}
+    ]
+    response_text = call_openai_api(messages, max_tokens=500)
     try:
-        response = requests.post(API_URL, headers=headers, json=data)
-        response.raise_for_status()  # Raise an exception for HTTP errors
-        response_content = response.content.decode('utf-8')
-        response_json = json.loads(response_content)
-        return json.loads(response_json["choices"][0]["message"]["content"])
-    except requests.exceptions.RequestException as e:
-        print(f"HTTP Request failed: {e}")
-        return {"vendor": None, "product": None, "exploits": None, "summary": None}
-    except (json.JSONDecodeError, KeyError) as e:
-        print(f"Error parsing API response: {e} + {response_content}")
+        return json.loads(response_text)
+    except Exception as e:
+        logging.error(f"Error parsing API response: {e} + {response_text}")
         return {"vendor": None, "product": None, "exploits": None, "summary": None}
 
-def fetch_article_text(url: str) -> str:
+def fetch_article_text(url):
     """Fetch and return the article text from a URL."""
-    response = requests.get(url, timeout=10, headers={"User-Agent": "Chrome/58.0.3029.110 Safari/537.3"})
-    if response.status_code != 200:
-        print(f"Failed to fetch article: {url}, status code: {response.status_code}")
+    try:
+        logging.info(f"Fetching article text from: {url}")
+        response = requests.get(url, timeout=10, headers={"User-Agent": "Chrome/58.0.3029.110 Safari/537.3"})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        content = soup.find_all('p')
+        return " ".join([p.get_text() for p in content])
+    except Exception as e:
+        logging.warning(f"Failed to fetch article: {url}, error: {e}")
         return ""
-    soup = BeautifulSoup(response.content, 'html.parser')
-    content = soup.find_all('p')
-    return " ".join([p.get_text() for p in content])
 
-def create_entries(feeds: list, last_published: datetime) -> list:
+def create_entries(feeds, last_published):
     """Parse feeds and return new entries since last_published."""
     new_entries = []
     for url in feeds:
-        print("Parsing: " + url)
         feed = feedparser.parse(url)
         for entry in feed.entries:
             article_text = fetch_article_text(entry.link)
             if not article_text:
                 continue
             entry_published = dateutil.parser.parse(entry.published) if hasattr(entry, 'published') else None
-            if entry_published and entry_published > last_published:
-                res = query_AI_extraction(article_text)
-                print(res)
-                vendor = res.get('vendor')
-                if vendor:
-                    vendor = basename(vendor).upper()
-                else:
-                    print("Skipping entry with unknown vendor")
-                    continue
-                product = res.get('product', 'Unknown')
-                exploits = res.get('exploits', 'None')
-                summary = res.get('summary', 'None')
-                img = entry.enclosures[0]['url'] if entry.enclosures else None
-                new_entries.append((entry.title, vendor, product, entry_published, exploits, summary, entry.link, img))
+            if not entry_published or entry_published <= last_published:
+                break
+            res = query_AI_extraction(article_text)
+            logging.info(res)
+            vendor = res.get('vendor')
+            if not vendor:
+                logging.info("Skipping entry with unknown vendor")
+                continue
+            vendor = basename(vendor).upper()
+            product = res.get('product', 'Unknown')
+            exploits = res.get('exploits', 'None')
+            summary = res.get('summary', 'None')
+            img = entry.enclosures[0]['url'] if entry.enclosures else None
+            incident_type = res.get('incident_type', "Potential unauthorized access or data exfiltration.")
+            affected_service = res.get('affected_service', "[Service Name]")
+            potentially_impacted_data = res.get('potentially_impacted_data', "[Specify the type of data, e.g., customer information, login credentials, etc.]")
+            status = res.get('status', "The incident is under active investigation, with immediate steps underway to mitigate potential impact.")
+            new_entries.append((
+                entry.title, vendor, product, entry_published, exploits, summary, entry.link, img,
+                incident_type, affected_service, potentially_impacted_data, status
+            ))
     return new_entries
 
-def dedupe_entries(new_entries: list, window_days: int = 60) -> list:
+def dedupe_entries(new_entries, window_days=60):
     """Remove duplicate entries using AI deduplication."""
     one_month_ago = datetime.now(timezone.utc) - timedelta(days=window_days)
     filtered_entries = []
@@ -141,7 +154,7 @@ def dedupe_entries(new_entries: list, window_days: int = 60) -> list:
             filtered_entries.append(entry)
     return filtered_entries
 
-def insert_entries(entries: list):
+def insert_entries(entries):
     """Insert entries into the database, skipping duplicates."""
     for entry in entries:
         try:
@@ -153,12 +166,16 @@ def insert_entries(entries: list):
                 exploits=entry[4],
                 summary=entry[5],
                 url=entry[6],
-                img=entry[7]
+                img=entry[7],
+                incident_type=entry[8],
+                affected_service=entry[9],
+                potentially_impacted_data=entry[10],
+                status=entry[11]
             )
         except peewee.IntegrityError:
             continue
 
-def send_notifications(entries: list) -> int:
+def send_notifications(entries):
     """Send email notifications for new entries."""
     emails_count = 0
     for entry in entries:
@@ -168,7 +185,7 @@ def send_notifications(entries: list) -> int:
         emails = [row.emails for row in results]
         if emails:
             emails_count += len(emails)
-            print(f"Sending email to: {emails}")
+            logging.info(f"Sending email to: {emails}")
             for email in emails:
                 send_email_ses([email], entry)
     return emails_count
@@ -181,15 +198,15 @@ def lambda_handler(event, context):
         last_published = current_time - timedelta(hours=hours_ago)
         db.connect(reuse_if_open=True)
         new_entries = create_entries(FEEDS, last_published)
-        print("Since last published: " + str(last_published))
+        logging.info(f"Since last published: {last_published}")
         if not new_entries:
-            return {"statusCode": 200, "body": f"No new entries found."}
+            return {"statusCode": 200, "body": "No new entries found."}
         new_entries = dedupe_entries(new_entries)
-        print("Inserting entries...")
+        logging.info("Inserting entries...")
         insert_entries(new_entries)
         emails_count = send_notifications(new_entries)
         db.close()
         return {"statusCode": 200, "body": f"Inserted {len(new_entries)} new entries. Sent {emails_count} emails."}
     except Exception as e:
-        print(f"Error in lambda_handler: {e}")
+        logging.error(f"Error in lambda_handler: {e}")
         return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
