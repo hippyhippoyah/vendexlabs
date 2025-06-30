@@ -2,6 +2,16 @@ provider "aws" {
   region = "us-east-1"
 }
 
+terraform {
+  backend "s3" {
+    bucket         = "vendexlabs-infra-bucket"
+    key            = "vendexlabs/infra/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-lock-table"
+    encrypt        = true
+  }
+}
+
 
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"

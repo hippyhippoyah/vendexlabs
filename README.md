@@ -54,4 +54,5 @@ V1.2: Added dedupe handling
 - Implement ORG manager endpoint
 - Finish Vendor Analysis Page and Parsing of Information
 - Restructure Lambdas to Add Admins, Orgs, and Tenants. (Currently only support for individuals and Tenants)
+- Fix dedupe
 - Still very much a WIP will clean up Repo before public (random files not needed and might be sensitive)
