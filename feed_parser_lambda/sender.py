@@ -9,7 +9,7 @@ LOGO_URL = "https://vendexlabstest.s3.us-east-1.amazonaws.com/logo.png"
 
 def send_email_ses(recipients, entry):
 
-    title, vendor, product, published, exploits, summary, url, img, incident_type, affected_service, potentially_impacted_data, status = entry
+    title, vendor, product, published, exploits, summary, url, img, incident_type, affected_service, potentially_impacted_data, status, source = entry
     logging.info(f"Sending email to: {recipients}")
 
     image_html = ""
@@ -20,6 +20,8 @@ def send_email_ses(recipients, entry):
         </div>
         '''
 
+    subject = f"{source}: {title}" if source else title
+
     body = f"""
     <html>
         <head>
@@ -27,15 +29,15 @@ def send_email_ses(recipients, entry):
                 body {{ font-family: Calibri, sans-serif; background:#f9f9f9; padding:20px; color:#333; }}
                 .container {{ background:#fff; padding:20px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }}
                 .logo-banner-container {{
-                    background-color: #EFEEEC; /* Grey background on the sides */
-                    padding: 0 20px; /* Padding on both sides */
+                    background-color: #EFEEEC;
+                    padding: 0 20px;
                 }}
                 .logo-banner {{
                     background-image: url('{LOGO_URL}');
                     background-size: contain;
                     background-repeat: no-repeat;
                     background-position: center;
-                    height: 100px; /* Adjust the height of the logo banner */
+                    height: 100px;
                     width: 100%;
                 }}
                 .content {{ padding: 20px; }}
@@ -53,6 +55,7 @@ def send_email_ses(recipients, entry):
                 </div>
                 <div class="content">
                     <p><em>Notification from VendexLabs</em></p>
+                    <p><strong>Source:</strong> {source}</p>
                     <p><strong>Vendor Product:</strong> {vendor} {product}</p>
                     <p><strong>Published Date:</strong> {published}</p>
                     <p><strong>Incident Type:</strong> {incident_type}</p>
@@ -76,7 +79,7 @@ def send_email_ses(recipients, entry):
             Source=SENDER_EMAIL,
             Destination={'ToAddresses': recipients},
             Message={
-                'Subject': {'Data': title},
+                'Subject': {'Data': subject},
                 'Body': {'Html': {'Data': body}}
             }
         )

@@ -1,10 +1,8 @@
-# --- Standard library imports ---
 import os
 import json
 from datetime import datetime, timedelta, timezone
 import logging
 
-# --- Third-party imports ---
 import requests
 import feedparser
 import dateutil.parser
@@ -12,11 +10,9 @@ from bs4 import BeautifulSoup
 from cleanco import basename
 import peewee
 
-# --- Local imports ---
 from sender import send_email_ses
 from models import db, RSSFeed, Subscription
 
-# --- Configuration ---
 API_URL = "https://api.openai.com/v1/chat/completions"
 API_KEY = os.getenv("API_KEY")
 RSS_FEED_URLS = os.getenv("RSS_FEED_URLS", "[]")
@@ -25,8 +21,7 @@ FEEDS = json.loads(RSS_FEED_URLS)
 logging.basicConfig(level=logging.INFO)
 logging.getLogger().setLevel(logging.INFO)
 
-def call_openai_api(messages, max_tokens=300, temperature=0):
-    """Helper to call OpenAI API and return the response content."""
+def call_openai_api(messages, max_tokens=1000, temperature=0):
     headers = {"Authorization": f"Bearer {API_KEY}"}
     data = {
         "model": "gpt-4o-mini",
@@ -44,7 +39,6 @@ def call_openai_api(messages, max_tokens=300, temperature=0):
         return None
 
 def is_dupe(results, entry):
-    """Check if entry is a duplicate using OpenAI API."""
     prompt = f"""Article: {entry[0]}.
     Is the given article a duplicate of the following articles?
     {results}.
@@ -58,8 +52,9 @@ def is_dupe(results, entry):
     return False
 
 def query_AI_extraction(summary):
-    """Extract vendor, product, exploits, summary, incident_type, affected_service, potentially_impacted_data, and status from article using OpenAI API."""
     prompt = f"""Article: {summary}. 
+    If the article is not about a security incident, return nothing.
+    If it is, answer the following:
     Based on the Article, What compromised entity is mentioned in the summary?
     What product is affected in the summary?
     How much has this product been exploited?
@@ -70,7 +65,8 @@ def query_AI_extraction(summary):
     Status: The incident is under active investigation, with immediate steps underway to mitigate potential impact.
     """
     system_prompt = (
-        'You are a JSON only responder. Respond with a format like this: '
+        'You are a JSON only responder. If the article is not about a security incident, return nothing (empty response). '
+        'Otherwise, respond with a format like this: '
         '{"vendor": "vendorName", "product": "productName", "exploits": "", "summary":"summary", '
         '"incident_type": "Potential unauthorized access or data exfiltration.", '
         '"affected_service": "[Service Name]", '
@@ -84,14 +80,15 @@ def query_AI_extraction(summary):
         {"role": "system", "content": system_prompt}
     ]
     response_text = call_openai_api(messages, max_tokens=500)
+    if not response_text or not response_text.strip():
+        return None
     try:
         return json.loads(response_text)
     except Exception as e:
         logging.error(f"Error parsing API response: {e} + {response_text}")
-        return {"vendor": None, "product": None, "exploits": None, "summary": None}
+        return None
 
 def fetch_article_text(url):
-    """Fetch and return the article text from a URL."""
     try:
         logging.info(f"Fetching article text from: {url}")
         response = requests.get(url, timeout=10, headers={"User-Agent": "Chrome/58.0.3029.110 Safari/537.3"})
@@ -104,9 +101,12 @@ def fetch_article_text(url):
         return ""
 
 def create_entries(feeds, last_published):
-    """Parse feeds and return new entries since last_published."""
     new_entries = []
-    for url in feeds:
+    for feed_info in feeds:
+        source = feed_info.get("source", "Unknown")
+        url = feed_info.get("url")
+        if not url:
+            continue
         feed = feedparser.parse(url)
         for entry in feed.entries:
             article_text = fetch_article_text(entry.link)
@@ -116,6 +116,8 @@ def create_entries(feeds, last_published):
             if not entry_published or entry_published <= last_published:
                 break
             res = query_AI_extraction(article_text)
+            if not res:
+                continue
             logging.info(res)
             vendor = res.get('vendor')
             if not vendor:
@@ -132,12 +134,11 @@ def create_entries(feeds, last_published):
             status = res.get('status', "The incident is under active investigation, with immediate steps underway to mitigate potential impact.")
             new_entries.append((
                 entry.title, vendor, product, entry_published, exploits, summary, entry.link, img,
-                incident_type, affected_service, potentially_impacted_data, status
+                incident_type, affected_service, potentially_impacted_data, status, source
             ))
     return new_entries
 
 def dedupe_entries(new_entries, window_days=60):
-    """Remove duplicate entries using AI deduplication."""
     one_month_ago = datetime.now(timezone.utc) - timedelta(days=window_days)
     filtered_entries = []
     for entry in new_entries:
@@ -155,7 +156,6 @@ def dedupe_entries(new_entries, window_days=60):
     return filtered_entries
 
 def insert_entries(entries):
-    """Insert entries into the database, skipping duplicates."""
     for entry in entries:
         try:
             RSSFeed.create(
@@ -170,13 +170,13 @@ def insert_entries(entries):
                 incident_type=entry[8],
                 affected_service=entry[9],
                 potentially_impacted_data=entry[10],
-                status=entry[11]
+                status=entry[11],
+                source=entry[12]
             )
         except peewee.IntegrityError:
             continue
 
 def send_notifications(entries):
-    """Send email notifications for new entries."""
     emails_count = 0
     for entry in entries:
         vendor = entry[1] or "Unknown"
@@ -191,7 +191,6 @@ def send_notifications(entries):
     return emails_count
 
 def lambda_handler(event, context):
-    """AWS Lambda entrypoint."""
     try:
         current_time = datetime.now(timezone.utc)
         hours_ago = event.get("hours", 3)

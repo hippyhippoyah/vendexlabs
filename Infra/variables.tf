@@ -10,29 +10,17 @@ variable "db_pass" {
 }
 
 variable "rss_feed_urls" {
-  description = "RSS feed URL"
-  type        = list(string)
+  description = "RSS feed URLs as a list of objects"
+  type = list(object({
+    source = string
+    url    = string
+  }))
 }
 
 variable "api_key" {
   description = "API key"
   type        = string
   sensitive   = true
-}
-
-variable "lambda_version" {
-  description = "Lambda version"
-  type        = string
-}
-
-variable "subscription_version" {
-  description = "Subscription version"
-  type        = string
-}
-
-variable "vendor_info_version" {
-  description = "Vendor info version"
-  type        = string
 }
 
 variable "google_api_key" {

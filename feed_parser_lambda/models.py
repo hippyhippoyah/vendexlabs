@@ -30,6 +30,7 @@ class RSSFeed(BaseModel):
     affected_service = peewee.TextField(null=True)
     potentially_impacted_data = peewee.TextField(null=True)
     status = peewee.TextField(null=True)
+    source = peewee.TextField(null=True)
 
     class Meta:
         table_name = 'rss_feeds'
