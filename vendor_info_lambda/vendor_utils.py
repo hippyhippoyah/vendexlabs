@@ -1,48 +1,18 @@
-import requests
-from urllib.parse import urljoin
-from bs4 import BeautifulSoup
-import os
 import json
+import os
+import re
+import requests
+from bs4 import BeautifulSoup
 
-def find_policy_urls(base_url):
-    try:
-        resp = requests.get(base_url, timeout=10)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        privacy_urls = set()
-        tos_urls = set()
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            href_lower = href.lower()
-            full_url = urljoin(base_url, href)
-            if "privacy" in href_lower:
-                privacy_urls.add(full_url)
-            if "terms" in href_lower or "tos" in href_lower or "conditions" in href_lower:
-                tos_urls.add(full_url)
-        return {
-            "privacy_policy_url": sorted(privacy_urls)[0] if privacy_urls else "",
-            "terms_of_service_url": sorted(tos_urls)[0] if tos_urls else ""
-        }
-    except Exception as e:
-        print(f"Error finding policy URLs for {base_url}: {e}")
-        return {
-            "privacy_policy_url": "",
-            "terms_of_service_url": ""
-        }
-
-API_URL = "https://api.openai.com/v1/chat/completions"
-API_KEY = os.getenv("API_KEY")
-
+GOOGLE_SEARCH_URL = os.getenv("GOOGLE_SEARCH_URL", "https://www.googleapis.com/customsearch/v1")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
-GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
+
+API_KEY = os.getenv("API_KEY")
+API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+
 
 def google_custom_search(query, **kwargs):
-    """
-    Perform a Google Custom Search using the provided query.
-    Additional parameters can be passed as keyword arguments.
-    Returns the link of the first search result.
-    """
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
         raise ValueError("Google API key or CSE ID not set in environment variables.")
 
@@ -60,8 +30,12 @@ def google_custom_search(query, **kwargs):
         return results["items"][0].get("link", "")
     return ""
 
-def llm_json_response(prompt):
+def search_official_website(vendor_name):
+    # Use Google Custom Search to find the official website
+    query = f"{vendor_name} official website"
+    return google_custom_search(query)
 
+def llm_json_response(prompt):
     """
     Send a prompt to the LLM and return the parsed JSON response.
     """
@@ -75,75 +49,159 @@ def llm_json_response(prompt):
         " If a value does not exist, use an empty string or empty array as appropriate."
     )
     data = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 512,
-        "temperature": 0
-    }
-    response = requests.post(API_URL, headers=headers, json=data)
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"]["content"]
-    try:
-        json_start = content.find('{')
-        if json_start != -1:
-            content = content[json_start:]
-        return json.loads(content)
-    except Exception as e:
-        print(f"Failed to parse JSON from model: {e}\nRaw content: {content}")
-        return None
-    
-def generate_vendor_info(vendor_name):
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
-    prompt = f"""Provide the following information about the company '{vendor_name}':
-- vendor: {vendor_name}
-- s_and_c_cert: List of security and compliance certifications (as a JSON array)
-- bus_type: What kind of business (choose one or more: 'B2B as a SaaS', 'B2C', or 'B2B as a service provider') (as a JSON array)
-- data_collected: What kind of data does it collect from customers?
-- legal_compliance: Does the data have any legal/compliance implications?
-- published_subprocessors: List the published subprocessor list (as a JSON array)
-- privacy_policy_url: The URL for the privacy policy. This must be a real, working URL from the official vendor website. Do not guess or fabricate. Visit the vendor's official website and copy the actual link.
-- terms_of_service_url: The URL for the terms of service or terms of condition policy. This must be a real, working URL from the official vendor website. Do not guess or fabricate. Visit the vendor's official website and copy the actual link.
-- date: Today's date in YYYY-MM-DD format
-
-You must search the official vendor website and reputable sources to find this information. Only provide real, verified URLs. Do not make up or guess URLs. Respond in valid JSON format with these fields only. Do not include any extra text or explanation."""
-    system_prompt = f"""You must respond in JSON format only. Do not include any other text or explanations.
-Your response must use only real, verified information from the official vendor website or reputable sources. For URLs, you must visit the official vendor website and copy the actual, working links. Do not guess, fabricate, or use placeholders for URLs. If a URL does not exist, use an empty string.
-
-Your response should look like this, but with the relevant and correct information about the vendor:
-Example: {{
-"vendor": "vendorName",
-"s_and_c_cert": ["SOC2", "ISO27001"],
-"bus_type": ["B2B","B2C"],
-"data_collected": "Customer names, emails, usage data",
-"legal_compliance": "GDPR, CCPA",
-"published_subprocessors": ["AWS", "Stripe"],
-"privacy_policy_url": "https://vendor.com/privacy-policy",
-"terms_of_service_url": "https://vendor.com/terms",
-"date": "YYYY-MM-DD"
-}}"""
-    data = {
         "model": "gpt-4o-mini-search-preview",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
+        "max_tokens": 2048
     }
     response = requests.post(API_URL, headers=headers, json=data)
+
     response.raise_for_status()
     content = response.json()["choices"][0]["message"]["content"]
     try:
-        # Strip leading text before JSON object
-        json_start = content.find('{')
-        if json_start != -1:
-            content = content[json_start:]
-        return json.loads(content)
+        # Use regex to extract the first JSON object or array from the response
+        match = re.search(r'(\{.*\}|\[.*\])', content, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+            return json.loads(json_str)
+        else:
+            # Fallback to previous logic
+            json_start = content.find('{')
+            if json_start != -1:
+                content = content[json_start:]
+            return json.loads(content)
     except Exception as e:
         print(f"Failed to parse JSON from model: {e}\nRaw content: {content}")
         return None
 
+def scrape_website_for_fields(website_url):
+    """
+    Use Google Search API to find relevant URLs (privacy policy, tos, contact, etc.)
+    and LLM to extract structured info from the website context.
+    """
+    # Use Google Search to find privacy policy and tos URLs
+    privacy_policy_url = google_custom_search(f"{website_url} privacy policy") or f"{website_url}/privacy"
+    tos_url = google_custom_search(f"{website_url} terms of service") or f"{website_url}/tos"
+    contact_url = google_custom_search(f"{website_url} contact") or f"{website_url}/contact"
+
+    # Compose LLM prompt
+    prompt = (
+        f"Given the official website {website_url}, privacy policy URL {privacy_policy_url}, "
+        f"terms of service URL {tos_url}, and contact page {contact_url}, "
+        "extract the following fields as JSON:\n"
+        "{"
+        "\"logo\": (URL to the company's logo), "
+        "\"contact_email\": (official contact email), "
+        "\"headquarters_location\": (company headquarters location), "
+        "\"privacy_policy_url\": (privacy policy URL), "
+        "\"tos_url\": (terms of service URL)"
+        "}\n"
+        "Use only real, verifiable information. If a value does not exist, use an empty string."
+    )
+    llm_result = llm_json_response(prompt)
+    # Fallback if LLM fails
+    if not llm_result:
+        llm_result = {
+            "logo": f"{website_url}/logo.png",
+            "contact_email": f"info@{website_url.split('//')[1]}",
+            "headquarters_location": "",
+            "privacy_policy_url": privacy_policy_url,
+            "tos_url": tos_url
+        }
+    return llm_result
+
+def extract_fields_with_llm(privacy_policy_url, tos_url, website_url):
+    """
+    Fetch and parse privacy policy and ToS pages, then use LLM to extract fields.
+    """
+    def fetch_text(url):
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            # Get visible text only
+            texts = soup.stripped_strings
+            return " ".join(texts)[:4000]  # Limit to 4000 chars for prompt size
+        except Exception as e:
+            print(f"Failed to fetch or parse {url}: {e}")
+            return ""
+
+    privacy_text = fetch_text(privacy_policy_url) if privacy_policy_url else ""
+    tos_text = fetch_text(tos_url) if tos_url else ""
+
+    prompt = (
+        f"Given the following information from the vendor's website ({website_url}):\n"
+        f"Privacy Policy:\n{privacy_text}\n\n"
+        f"Terms of Service:\n{tos_text}\n\n"
+        "Extract the following fields as a JSON object with the following types:\n"
+        "{\n"
+        "  \"data_collected\": array of strings,  // types of data collected\n"
+        "  \"legal_compliance\": string,           // legal/compliance implications\n"
+        "  \"published_subprocessors\": array of strings, // list of subprocessors (max 100)\n"
+        "  \"s_and_c_cert\": array of strings,     // security and compliance certifications\n"
+        "  \"bus_type\": array of strings,         // business type\n"
+        "  \"alias\": array of strings,            // known aliases\n"
+        "  \"compliance_certifications\": array of strings, // compliance certifications\n"
+        "  \"risk_categories\": array of strings,  // risk categories\n"
+        "  \"date\": string                        // date of last update if available\n"
+        "}\n"
+        "Use only real, verifiable information. If a value does not exist, use an empty string for strings or an empty array for arrays."
+    )
+    llm_result = llm_json_response(prompt)
+    # Fallback if LLM fails
+    if not llm_result:
+        llm_result = {
+            "data_collected": [],
+            "legal_compliance": "",
+            "published_subprocessors": [],
+            "s_and_c_cert": [],
+            "bus_type": [],
+            "alias": [],
+            "compliance_certifications": [],
+            "risk_categories": [],
+            "date": ""
+        }
+    return llm_result
+
+def get_security_and_risk_data(website_url):
+    # Placeholder: Call third-party APIs for security_rating, risk_score, breach_history
+    return {
+        "security_rating": 10,
+        "risk_score": 10,
+        "breach_history": []
+    }
+
+def get_vendor_info_auto(vendor_name):
+    website_url = search_official_website(vendor_name)
+    scraped = scrape_website_for_fields(website_url)
+    llm_fields = extract_fields_with_llm(
+        scraped.get("privacy_policy_url"),
+        scraped.get("tos_url"),
+        website_url
+    )
+    security_data = get_security_and_risk_data(website_url)
+    vendor_info = {
+        "vendor": vendor_name,
+        "website_url": website_url,
+        "logo": scraped.get("logo"),
+        "contact_email": scraped.get("contact_email"),
+        "headquarters_location": scraped.get("headquarters_location"),
+        "privacy_policy_url": scraped.get("privacy_policy_url"),
+        "tos_url": scraped.get("tos_url"),
+        "data_collected": llm_fields.get("data_collected"),
+        "legal_compliance": llm_fields.get("legal_compliance"),
+        "published_subprocessors": llm_fields.get("published_subprocessors"),
+        "s_and_c_cert": llm_fields.get("s_and_c_cert"),
+        "bus_type": llm_fields.get("bus_type"),
+        "alias": llm_fields.get("alias"),
+        "compliance_certifications": llm_fields.get("compliance_certifications"),
+        "risk_categories": llm_fields.get("risk_categories"),
+        "date": llm_fields.get("date"),
+        "security_rating": security_data.get("security_rating"),
+        "risk_score": security_data.get("risk_score"),
+        "breach_history": security_data.get("breach_history"),
+        "last_reviewed": "2024-06-01T00:00:00Z"
+    }
+    return vendor_info

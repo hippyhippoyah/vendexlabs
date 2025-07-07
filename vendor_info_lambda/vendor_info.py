@@ -3,10 +3,7 @@ from cleanco import basename
 from config import db
 from models import VendorInfo
 import os
-from vendor_utils import generate_vendor_info
-
-API_URL = "https://api.openai.com/v1/chat/completions"
-API_KEY = os.getenv("API_KEY")
+from vendor_utils import get_vendor_info_auto
 
 def add_info_to_db(vendors):
     if not vendors:
@@ -19,9 +16,9 @@ def add_info_to_db(vendors):
     updated_vendors = []
     inserted_vendors = []
     for vendor in vendors:
-
         normalized_vendor = basename(vendor).upper()
-        vendor_info = generate_vendor_info(normalized_vendor)
+        vendor_info = get_vendor_info_auto(normalized_vendor)
+        print("Vendor info:", vendor_info)
         if not vendor_info:
             print(f"Could not generate info for {normalized_vendor}")
             continue
@@ -32,25 +29,48 @@ def add_info_to_db(vendors):
                 defaults={
                     "s_and_c_cert": vendor_info.get('s_and_c_cert', []),
                     "bus_type": vendor_info.get('bus_type', []),
-                    "data_collected": vendor_info.get('data_collected'),
-                    "legal_compliance": vendor_info.get('legal_compliance'),
+                    "data_collected": vendor_info.get('data_collected') if vendor_info.get('data_collected') not in ("", None) else None,
+                    "legal_compliance": vendor_info.get('legal_compliance') if vendor_info.get('legal_compliance') not in ("", None) else None,
                     "published_subprocessors": vendor_info.get('published_subprocessors', []),
                     "privacy_policy_url": vendor_info.get('privacy_policy_url'),
-                    "tos_url": vendor_info.get('terms_of_service_url'),
+                    "tos_url": vendor_info.get('terms_of_service_url') or vendor_info.get('tos_url'),
                     "date": vendor_info.get('date'),
-                    "alias": vendor_info.get('alias')
+                    "alias": vendor_info.get('alias'),
+                    "logo": vendor_info.get('logo'),
+                    "data": vendor_info.get('data'),
+                    "security_rating": vendor_info.get('security_rating'),
+                    "risk_score": vendor_info.get('risk_score'),
+                    "risk_categories": vendor_info.get('risk_categories'),
+                    "compliance_certifications": vendor_info.get('compliance_certifications'),
+                    "headquarters_location": vendor_info.get('headquarters_location'),
+                    "contact_email": vendor_info.get('contact_email'),
+                    "breach_history": vendor_info.get('breach_history'),
+                    "last_reviewed": vendor_info.get('last_reviewed'),
+                    "website_url": vendor_info.get('website_url')
                 }
             )
             if not created:
-                # Update the existing vendor's information
+                # Update all fields
                 obj.s_and_c_cert = vendor_info.get('s_and_c_cert', [])
                 obj.bus_type = vendor_info.get('bus_type', [])
-                obj.data_collected = vendor_info.get('data_collected')
-                obj.legal_compliance = vendor_info.get('legal_compliance')
+                obj.data_collected = vendor_info.get('data_collected') if vendor_info.get('data_collected') not in ("", None) else None
+                obj.legal_compliance = vendor_info.get('legal_compliance') if vendor_info.get('legal_compliance') not in ("", None) else None
                 obj.published_subprocessors = vendor_info.get('published_subprocessors', [])
                 obj.privacy_policy_url = vendor_info.get('privacy_policy_url')
-                obj.tos_url = vendor_info.get('terms_of_service_url')
+                obj.tos_url = vendor_info.get('terms_of_service_url') or vendor_info.get('tos_url')
                 obj.date = vendor_info.get('date')
+                obj.alias = vendor_info.get('alias')
+                obj.logo = vendor_info.get('logo')
+                obj.data = vendor_info.get('data')
+                obj.security_rating = vendor_info.get('security_rating')
+                obj.risk_score = vendor_info.get('risk_score')
+                obj.risk_categories = vendor_info.get('risk_categories')
+                obj.compliance_certifications = vendor_info.get('compliance_certifications')
+                obj.headquarters_location = vendor_info.get('headquarters_location')
+                obj.contact_email = vendor_info.get('contact_email')
+                obj.breach_history = vendor_info.get('breach_history')
+                obj.last_reviewed = vendor_info.get('last_reviewed')
+                obj.website_url = vendor_info.get('website_url')
                 obj.save()
                 updated_vendors.append(normalized_vendor)
             else:
@@ -87,7 +107,18 @@ def get_vendor_info_from_db(vendor_names):
                     "privacy_policy_url": obj.privacy_policy_url,
                     "tos_url": obj.tos_url,
                     "date": obj.date,
-                    "alias": obj.alias
+                    "alias": obj.alias,
+                    "logo": obj.logo,
+                    "data": obj.data,
+                    "security_rating": obj.security_rating,
+                    "risk_score": obj.risk_score,
+                    "risk_categories": obj.risk_categories,
+                    "compliance_certifications": obj.compliance_certifications,
+                    "headquarters_location": obj.headquarters_location,
+                    "contact_email": obj.contact_email,
+                    "breach_history": obj.breach_history,
+                    "last_reviewed": obj.last_reviewed,
+                    "website_url": obj.website_url
                 }
                 results.append(vendor_info)
             else:

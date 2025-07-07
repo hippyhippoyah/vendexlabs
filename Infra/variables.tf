@@ -34,3 +34,26 @@ variable "vendor_info_version" {
   description = "Vendor info version"
   type        = string
 }
+
+variable "google_api_key" {
+  description = "Google Custom Search API key"
+  type        = string
+  sensitive   = true
+}
+
+variable "google_cse_id" {
+  description = "Google Custom Search Engine ID"
+  type        = string
+}
+
+variable "google_search_url" {
+  description = "Google Custom Search API URL"
+  type        = string
+  default     = "https://www.googleapis.com/customsearch/v1"
+}
+
+variable "openai_api_url" {
+  description = "OpenAI API URL"
+  type        = string
+  default     = "https://api.openai.com/v1/chat/completions"
+}

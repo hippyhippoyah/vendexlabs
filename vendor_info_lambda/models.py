@@ -1,16 +1,18 @@
 import peewee
 from playhouse.postgres_ext import JSONField
 from config import db
+import uuid
 
 class BaseModel(peewee.Model):
     class Meta:
         database = db
 
 class VendorInfo(BaseModel):
-    vendor = peewee.TextField(unique=True, primary_key=True)
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
+    vendor = peewee.TextField(unique=True)
     s_and_c_cert = JSONField(null=True)
     bus_type = JSONField(null=True)
-    data_collected = peewee.TextField(null=True)
+    data_collected = JSONField(null=True)
     legal_compliance = peewee.TextField(null=True)
     published_subprocessors = JSONField(null=True)
     privacy_policy_url = peewee.TextField(null=True)
@@ -18,6 +20,16 @@ class VendorInfo(BaseModel):
     date = peewee.TextField(null=True)
     logo = peewee.TextField(null=True)
     alias = JSONField(null=True)
+    data = JSONField(null=True)
+    security_rating = peewee.FloatField(null=True)
+    risk_score = peewee.IntegerField(null=True)
+    risk_categories = JSONField(null=True)
+    compliance_certifications = JSONField(null=True)
+    headquarters_location = peewee.TextField(null=True)
+    contact_email = peewee.TextField(null=True)
+    breach_history = JSONField(null=True)
+    last_reviewed = peewee.DateTimeField(null=True)
+    website_url = peewee.TextField(null=True)
 
     class Meta:
         table_name = 'vendor_info'

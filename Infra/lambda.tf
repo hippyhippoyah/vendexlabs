@@ -130,6 +130,10 @@ resource "aws_lambda_function" "vendor_info_lambda" {
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
       API_KEY     = var.api_key
+      GOOGLE_API_KEY = var.google_api_key
+      GOOGLE_CSE_ID  = var.google_cse_id
+      GOOGLE_SEARCH_URL = var.google_search_url
+      OPENAI_API_URL = var.openai_api_url
     }
   }
   vpc_config {
