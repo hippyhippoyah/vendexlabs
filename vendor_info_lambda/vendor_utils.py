@@ -148,11 +148,12 @@ def extract_fields_with_llm(privacy_policy_url, tos_url, website_url):
     """
     def fetch_text(url):
         try:
-            resp = requests.get(url, timeout=10)
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = requests.get(url, timeout=10, headers=headers)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "html.parser")
-            texts = soup.stripped_strings
-            return " ".join(texts)[:4000]  # Limit to 4000 chars for prompt size
+            text = soup.get_text(separator=" ", strip=True)
+            return text
         except Exception as e:
             print(f"Failed to fetch or parse {url}: {e}")
             return ""
