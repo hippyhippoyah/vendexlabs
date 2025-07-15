@@ -56,7 +56,8 @@ def send_email_ses(recipients, entry):
                 <div class="content">
                     <p><em>Notification from VendexLabs</em></p>
                     <p><strong>Source:</strong> {source}</p>
-                    <p><strong>Vendor Product:</strong> {vendor} {product}</p>
+                    <p><strong>Vendor:</strong> {vendor}</p>
+                    <p><strong>Product:</strong> {product} </p>
                     <p><strong>Published Date:</strong> {published}</p>
                     <p><strong>Incident Type:</strong> {incident_type}</p>
                     <p><strong>Affected Service:</strong> {affected_service}</p>

@@ -1,7 +1,7 @@
 import json
 from cleanco import basename
 from config import db
-from models import VendorInfo
+from models import VendorInfo, RSSFeed
 import os
 from vendor_utils import get_vendor_info_auto
 import uuid
@@ -229,6 +229,59 @@ def get_vendor_info_by_id_or_name(id=None, vendor_name=None):
     db.close()
     return result
 
+def get_security_instances_by_vendor(id_or_name):
+    """
+    Retrieve all RSSFeed entries that share the same vendor name.
+    """
+    db.connect(reuse_if_open=True)
+    try:
+        # Try to resolve id_or_name as UUID, else treat as vendor name
+        try:
+            vendor_id = uuid.UUID(id_or_name)
+            obj = VendorInfo.select().where(VendorInfo.id == vendor_id).first()
+            if obj:
+                vendor_name = obj.vendor
+            else:
+                vendor_name = None
+        except Exception:
+            vendor_name = basename(id_or_name).upper()
+        if not vendor_name:
+            return {
+                'statusCode': 404,
+                'body': json.dumps('Vendor not found')
+            }
+        feeds = RSSFeed.select().where(RSSFeed.vendor == vendor_name)
+        results = []
+        for feed in feeds:
+            results.append({
+                "id": str(feed.id) if hasattr(feed, "id") else None,
+                "title": feed.title,
+                "vendor": feed.vendor,
+                "product": feed.product,
+                "published": str(feed.published),
+                "exploits": feed.exploits,
+                "summary": feed.summary,
+                "url": feed.url,
+                "img": feed.img,
+                "incident_type": feed.incident_type,
+                "affected_service": feed.affected_service,
+                "potentially_impacted_data": feed.potentially_impacted_data,
+                "status": feed.status,
+                "source": feed.source
+            })
+        result = {
+            'statusCode': 200,
+            'body': json.dumps(results, default=str)
+        }
+    except Exception as e:
+        print(f"Error querying security instances: {e}")
+        result = {
+            'statusCode': 500,
+            'body': json.dumps('Internal server error')
+        }
+    db.close()
+    return result
+
 def lambda_handler(event, context):
     try:
         route_key = event.get('routeKey', '')
@@ -242,17 +295,24 @@ def lambda_handler(event, context):
     if route_key.startswith('GET /vendor/'):
         # Expecting /vendor/{id_or_name}
         id_or_name = None
-        # Try to get from pathParameters (API Gateway proxy integration)
         if 'pathParameters' in event and event['pathParameters']:
             id_or_name = event['pathParameters'].get('id_or_name')
         # Fallback: parse from the path if pathParameters is not set
         if not id_or_name:
             path = event.get('rawPath') or event.get('path', '')
-            # path should be like /vendor/{id_or_name}
+            # path should be like /vendor/{id_or_name} or /vendor/{id_or_name}/security-instances
             parts = path.strip('/').split('/')
             if len(parts) >= 2 and parts[0] == 'vendor':
                 id_or_name = parts[1]
-        # Try to parse as UUID, else treat as vendor_name
+        # Check for /vendor/{id_or_name}/security-instances
+        path = event.get('rawPath') or event.get('path', '')
+        if path and path.strip('/').endswith('security-instances'):
+            # /vendor/{id_or_name}/security-instances
+            if not id_or_name:
+                parts = path.strip('/').split('/')
+                if len(parts) >= 3 and parts[0] == 'vendor':
+                    id_or_name = parts[1]
+            return get_security_instances_by_vendor(id_or_name)
         vendor_id = None
         vendor_name = None
         try:

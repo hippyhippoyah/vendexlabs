@@ -76,9 +76,12 @@ def llm_json_response(prompt):
             {"role": "user", "content": prompt}
         ]
     }
-    response = requests.post(API_URL, headers=headers, json=data)
-
-    response.raise_for_status()
+    try:
+        response = requests.post(API_URL, headers=headers, json=data)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        print("Response Content:", response.text)
+        raise
     content = response.json()["choices"][0]["message"]["content"]
     try:
         # Use regex to extract the first JSON object or array from the response

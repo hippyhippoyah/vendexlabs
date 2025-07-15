@@ -66,12 +66,12 @@ def query_AI_extraction(summary):
     """
     system_prompt = (
         'You are a JSON only responder. If the article is not about a security incident, return nothing (empty response). '
-        'Otherwise, respond with a format like this: '
+        'Otherwise, respond with a format like this, if not certain about a field give None: '
         '{"vendor": "vendorName", "product": "productName", "exploits": "", "summary":"summary", '
-        '"incident_type": "Potential unauthorized access or data exfiltration.", '
-        '"affected_service": "[Service Name]", '
+        '"incident_type": "", '
+        '"affected_service": "", '
         '"potentially_impacted_data": "[Specify the type of data, e.g., customer information, login credentials, etc.]", '
-        '"status": "The incident is under active investigation, with immediate steps underway to mitigate potential impact."} '
+        '"status": "Status of Event"} '
         'Do not say anything else in the response. Do not include explanations, apologies, or any text outside of the JSON block. '
         'If unsure, still answer in the same format but with null objects.'
     )

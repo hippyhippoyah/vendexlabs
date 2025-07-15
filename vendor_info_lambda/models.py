@@ -33,3 +33,21 @@ class VendorInfo(BaseModel):
 
     class Meta:
         table_name = 'vendor_info'
+
+class RSSFeed(BaseModel):
+    title = peewee.TextField()
+    vendor = peewee.TextField()
+    product = peewee.TextField()
+    published = peewee.DateTimeField()
+    exploits = peewee.TextField()
+    summary = peewee.TextField()
+    url = peewee.TextField(unique=True)
+    img = peewee.TextField(null=True)
+    incident_type = peewee.TextField(null=True)
+    affected_service = peewee.TextField(null=True)
+    potentially_impacted_data = peewee.TextField(null=True)
+    status = peewee.TextField(null=True)
+    source = peewee.TextField(null=True)
+
+    class Meta:
+        table_name = 'rss_feeds'
