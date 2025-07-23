@@ -63,6 +63,13 @@ data "archive_file" "vendor_info_lambda_zip" {
   output_path = "${path.module}/vendor_info-lambda.zip"
 }
 
+# Archive the Account Handler Lambda source code
+data "archive_file" "account_handler_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../account_handler_lambda"
+  output_path = "${path.module}/Account-handler-lambda.zip"
+}
+
 resource "aws_lambda_function" "lambda" {
   function_name    = "lambda-RSS-handler"
   runtime          = "python3.9"
@@ -139,6 +146,30 @@ resource "aws_lambda_function" "vendor_info_lambda" {
   vpc_config {
     security_group_ids = [aws_security_group.lambda_sg.id]
     subnet_ids         = [data.aws_subnet.subnet1.id]
+  }
+}
+
+resource "aws_lambda_function" "account_handler_lambda" {
+  function_name    = "lambda-account-handler"
+  runtime          = "python3.9"
+  role             = aws_iam_role.vl_lambda_role.arn
+  handler          = "account_handler.lambda_handler"
+  filename         = data.archive_file.account_handler_lambda_zip.output_path
+  source_code_hash = data.archive_file.account_handler_lambda_zip.output_base64sha256
+  timeout          = 120
+  memory_size      = 1024
+  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  environment {
+    variables = {
+      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_USER = var.db_user
+      DB_PASS = var.db_pass
+      DB_NAME = "postgres"
+    }
+  }
+  vpc_config {
+    security_group_ids = [aws_security_group.lambda_sg.id]
+    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
   }
 }
 
