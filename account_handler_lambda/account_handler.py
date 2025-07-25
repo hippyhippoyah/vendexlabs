@@ -1,7 +1,21 @@
 import json
 from peewee import IntegrityError
 from config import db
-from models import Account, User, AccountUser, VendorList
+from models import Account, User, AccountUser, VendorList, Admin
+
+def get_user_email(event):
+    claims = None
+    authorizer = event['requestContext'].get('authorizer', {})
+    if 'jwt' in authorizer and 'claims' in authorizer['jwt']:
+        claims = authorizer['jwt']['claims']
+    elif 'claims' in authorizer:
+        claims = authorizer['claims']
+    else:
+        return None
+    return claims.get('email')
+
+def is_admin_email(email):
+    return Admin.get_or_none(Admin.email == email) is not None
 
 def add_account(account_name, users):
     db.connect(reuse_if_open=True)
@@ -11,7 +25,7 @@ def add_account(account_name, users):
         already_exists = []
 
         for user_email in users:
-            user, user_created = User.get_or_create(email=user_email)
+            user, _ = User.get_or_create(email=user_email)
             try:
                 AccountUser.create(account=account, user=user)
                 created_users.append(user_email)
@@ -79,6 +93,13 @@ def delete_accounts(names):
 def lambda_handler(event, context):
     print(event)
 
+    email = get_user_email(event)
+    if not email:
+        return {
+            'statusCode': 401,
+            'body': json.dumps("Unauthorized: No user email found")
+        }
+
     try:
         method = event['requestContext']['http']['method']
         method = method.upper()
@@ -89,6 +110,12 @@ def lambda_handler(event, context):
         }
 
     if method == 'POST':
+        if not is_admin_email(email):
+            return {
+                'statusCode': 403,
+                'body': json.dumps("Forbidden: Only admins can create accounts")
+            }
+
         body = event.get('body')
         if body:
             data = json.loads(body) if isinstance(body, str) else body
@@ -110,11 +137,18 @@ def lambda_handler(event, context):
         return get_accounts()
 
     elif method == 'DELETE':
+        if not is_admin_email(email):
+            return {
+                'statusCode': 403,
+                'body': json.dumps("Forbidden: Only admins can delete accounts")
+            }
+
         body = event.get('body')
         if body:
             data = json.loads(body) if isinstance(body, str) else body
         else:
             data = event
+
         names = data.get('names', [])
         return delete_accounts(names)
 

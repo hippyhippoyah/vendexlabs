@@ -20,7 +20,7 @@ class Account(BaseModel):
         table_name = 'accounts'
 
 class Admin(BaseModel):
-    user = peewee.ForeignKeyField(User, unique=True, backref='admin_of')
+    email = peewee.TextField(unique=True)
 
     class Meta:
         table_name = 'admins'
