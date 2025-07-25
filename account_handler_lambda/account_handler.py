@@ -15,7 +15,7 @@ def get_user_email(event):
     return claims.get('email')
 
 def is_admin_email(email):
-    return Admin.get_or_none(Admin.email == email) is not None
+    return Admin.get_or_none(**{'email': email}) is not None
 
 def add_account(account_name, users):
     db.connect(reuse_if_open=True)
