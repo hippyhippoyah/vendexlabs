@@ -15,7 +15,7 @@ def get_user_email(event):
     return claims.get('email')
 
 def is_admin_email(email):
-    return Admin.get_or_none(**{'email': email}) is not None
+    return Admin.get_or_none(Admin.email == email) is not None
 
 def add_account(account_name, users):
     db.connect(reuse_if_open=True)
@@ -33,7 +33,7 @@ def add_account(account_name, users):
                 db.rollback()
                 already_exists.append(user_email)
 
-        VendorList.get_or_create(name='master list', account=account)
+        master_list = VendorList.get_by_id(1)
 
         return {
             'statusCode': 200,
@@ -69,18 +69,27 @@ def get_accounts():
         'statusCode': 200,
         'body': json.dumps({'accounts': accounts})
     }
-
-def delete_accounts(names):
+def delete_accounts(account_names):
     db.connect(reuse_if_open=True)
     deleted = []
     not_found = []
-    for name in names:
-        query = Account.delete().where(Account.name == name)
-        rows_deleted = query.execute()
-        if rows_deleted > 0:
+    for name in account_names:
+        try:
+            account = Account.get_or_none(Account.name == name)
+            if not account:
+                not_found.append(name)
+                continue
+
+            AccountUser.delete().where(AccountUser.account == account).execute()
+            VendorList.delete().where(VendorList.account == account).execute()
+            Account.delete().where(Account.id == account.id).execute()
             deleted.append(name)
-        else:
-            not_found.append(name)
+        except Exception as e:
+            db.rollback()
+            return {
+                'statusCode': 500,
+                'body': json.dumps(f"Error deleting account '{name}': {str(e)}")
+            }
     db.close()
     return {
         'statusCode': 200,
@@ -109,18 +118,18 @@ def lambda_handler(event, context):
             'body': json.dumps('Bad Request: No HTTP method found')
         }
 
+    body = event.get('body')
+    if body:
+        data = json.loads(body) if isinstance(body, str) else body
+    else:
+        data = event
+
     if method == 'POST':
         if not is_admin_email(email):
             return {
                 'statusCode': 403,
                 'body': json.dumps("Forbidden: Only admins can create accounts")
             }
-
-        body = event.get('body')
-        if body:
-            data = json.loads(body) if isinstance(body, str) else body
-        else:
-            data = event
 
         account_name = data.get('account')
         users = data.get('users', [])
@@ -143,14 +152,19 @@ def lambda_handler(event, context):
                 'body': json.dumps("Forbidden: Only admins can delete accounts")
             }
 
-        body = event.get('body')
-        if body:
-            data = json.loads(body) if isinstance(body, str) else body
+        # Unified handling of single or multiple account deletion
+        input_accounts = []
+        if 'account' in data:
+            input_accounts = [data['account']]
+        elif 'accounts' in data:
+            input_accounts = data['accounts']
         else:
-            data = event
+            return {
+                'statusCode': 400,
+                'body': json.dumps("Missing required field: 'account' or 'accounts'")
+            }
 
-        names = data.get('names', [])
-        return delete_accounts(names)
+        return delete_accounts(input_accounts)
 
     else:
         return {
