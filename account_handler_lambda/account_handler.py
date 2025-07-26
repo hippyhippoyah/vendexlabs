@@ -69,6 +69,7 @@ def get_accounts():
         'statusCode': 200,
         'body': json.dumps({'accounts': accounts})
     }
+
 def delete_accounts(account_names):
     db.connect(reuse_if_open=True)
     deleted = []
