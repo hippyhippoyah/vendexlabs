@@ -70,26 +70,26 @@ def get_accounts():
         'body': json.dumps({'accounts': accounts})
     }
 
-def delete_accounts(account_names):
+def delete_accounts(account_ids):
     db.connect(reuse_if_open=True)
     deleted = []
     not_found = []
-    for name in account_names:
+    for acc_id in account_ids:
         try:
-            account = Account.get_or_none(Account.name == name)
+            account = Account.get_or_none(Account.id == acc_id)
             if not account:
-                not_found.append(name)
+                not_found.append(acc_id)
                 continue
 
             AccountUser.delete().where(AccountUser.account == account).execute()
             VendorList.delete().where(VendorList.account == account).execute()
             Account.delete().where(Account.id == account.id).execute()
-            deleted.append(name)
+            deleted.append(acc_id)
         except Exception as e:
             db.rollback()
             return {
                 'statusCode': 500,
-                'body': json.dumps(f"Error deleting account '{name}': {str(e)}")
+                'body': json.dumps(f"Error deleting account ID '{acc_id}': {str(e)}")
             }
     db.close()
     return {
@@ -153,19 +153,19 @@ def lambda_handler(event, context):
                 'body': json.dumps("Forbidden: Only admins can delete accounts")
             }
 
-        # Unified handling of single or multiple account deletion
-        input_accounts = []
-        if 'account' in data:
-            input_accounts = [data['account']]
-        elif 'accounts' in data:
-            input_accounts = data['accounts']
+        # Unified handling of single or multiple account deletion by ID
+        input_account_ids = []
+        if 'account_id' in data:
+            input_account_ids = [data['account_id']]
+        elif 'account_ids' in data:
+            input_account_ids = data['account_ids']
         else:
             return {
                 'statusCode': 400,
-                'body': json.dumps("Missing required field: 'account' or 'accounts'")
+                'body': json.dumps("Missing required field: 'account_id' or 'account_ids'")
             }
 
-        return delete_accounts(input_accounts)
+        return delete_accounts(input_account_ids)
 
     else:
         return {

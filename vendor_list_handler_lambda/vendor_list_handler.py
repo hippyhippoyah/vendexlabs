@@ -7,9 +7,9 @@ def get_user_email(event):
     claims = event['requestContext'].get('authorizer', {}).get('jwt', {}).get('claims', {})
     return claims.get('email')
 
-def is_user_in_account(account_name, email):
+def is_user_in_account(account_id, email):
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         user = User.get(User.email == email)
         return AccountUser.select().where(
             (AccountUser.account == account) & (AccountUser.user == user)
@@ -17,14 +17,14 @@ def is_user_in_account(account_name, email):
     except (Account.DoesNotExist, User.DoesNotExist):
         return False
 
-def add_vendor_list(account_name, vendor_list_name):
+def add_vendor_list(account_id, vendor_list_name):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         VendorList.create(name=vendor_list_name, account=account)
         return {
             'statusCode': 200,
-            'body': json.dumps(f"Vendor list '{vendor_list_name}' created for account '{account_name}'")
+            'body': json.dumps(f"Vendor list '{vendor_list_name}' created for account ID '{account_id}'")
         }
     except IntegrityError:
         db.rollback()
@@ -41,10 +41,10 @@ def add_vendor_list(account_name, vendor_list_name):
     finally:
         db.close()
 
-def delete_vendor_list(account_name, vendor_list_name):
+def delete_vendor_list(account_id, vendor_list_name):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get((VendorList.name == vendor_list_name) & (VendorList.account == account))
         vendor_list.delete_instance(recursive=True)
         return {
@@ -59,10 +59,10 @@ def delete_vendor_list(account_name, vendor_list_name):
     finally:
         db.close()
 
-def patch_vendors_in_list(account_name, vendor_list_name, vendors, action):
+def patch_vendors_in_list(account_id, vendor_list_name, vendors, action):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get((VendorList.name == vendor_list_name) & (VendorList.account == account))
         processed = []
         for vendor_name in vendors:
@@ -89,10 +89,10 @@ def patch_vendors_in_list(account_name, vendor_list_name, vendors, action):
     finally:
         db.close()
 
-def get_vendor_lists(account_name):
+def get_vendor_lists(account_id):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         lists = VendorList.select().where(VendorList.account == account)
         result = [vl.name for vl in lists]
         return {
@@ -102,10 +102,10 @@ def get_vendor_lists(account_name):
     finally:
         db.close()
 
-def get_vendors_from_list(account_name, vendor_list_name):
+def get_vendors_from_list(account_id, vendor_list_name):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get((VendorList.name == vendor_list_name) & (VendorList.account == account))
         vendors = [
             v.name for v in Vendor.select().join(VendorListVendor).where(VendorListVendor.vendor_list == vendor_list)
@@ -131,37 +131,37 @@ def lambda_handler(event, context):
     body = event.get('body')
     data = json.loads(body) if isinstance(body, str) else body or event
 
-    account_name = data.get('account')
+    account_id = data.get('account_id')
     vendor_list_name = data.get('vendor_list')
     vendors = data.get('vendors', [])
     action = data.get('action')
 
-    if not account_name:
-        return {'statusCode': 400, 'body': json.dumps("Missing 'account' field")}
+    if not account_id:
+        return {'statusCode': 400, 'body': json.dumps("Missing 'account_id' field")}
 
-    if not is_user_in_account(account_name, email):
+    if not is_user_in_account(account_id, email):
         return {'statusCode': 403, 'body': json.dumps("Forbidden: Not authorized for this account")}
 
     if method == 'POST':
         if not vendor_list_name:
             return {'statusCode': 400, 'body': json.dumps("Missing 'vendor_list' field")}
-        return add_vendor_list(account_name, vendor_list_name)
+        return add_vendor_list(account_id, vendor_list_name)
 
     elif method == 'DELETE':
         if not vendor_list_name:
             return {'statusCode': 400, 'body': json.dumps("Missing 'vendor_list' field")}
-        return delete_vendor_list(account_name, vendor_list_name)
+        return delete_vendor_list(account_id, vendor_list_name)
 
     elif method == 'PATCH':
         if not (vendor_list_name and vendors and action in ['add', 'remove']):
             return {'statusCode': 400, 'body': json.dumps("Missing or invalid fields for PATCH")}
-        return patch_vendors_in_list(account_name, vendor_list_name, vendors, action)
+        return patch_vendors_in_list(account_id, vendor_list_name, vendors, action)
 
     elif method == 'GET':
         if vendor_list_name:
-            return get_vendors_from_list(account_name, vendor_list_name)
+            return get_vendors_from_list(account_id, vendor_list_name)
         else:
-            return get_vendor_lists(account_name)
+            return get_vendor_lists(account_id)
 
     else:
         return {'statusCode': 405, 'body': json.dumps("Method Not Allowed")}

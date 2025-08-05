@@ -14,10 +14,10 @@ def get_user_email(event):
         return None
     return claims.get('email')
 
-def add_users(account_name, users):
+def add_users(account_id, users):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         added = []
         exists = []
 
@@ -55,7 +55,7 @@ def add_users(account_name, users):
     except Account.DoesNotExist:
         return {
             'statusCode': 404,
-            'body': json.dumps(f"Account '{account_name}' not found")
+            'body': json.dumps(f"Account with ID '{account_id}' not found")
         }
     except Exception as e:
         db.rollback()
@@ -66,10 +66,10 @@ def add_users(account_name, users):
     finally:
         db.close()
 
-def get_users(account_name):
+def get_users(account_id):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
         query = User.select().join(AccountUser).where(AccountUser.account == account)
         users = [{'email': u.email, 'name': u.name} for u in query]
         return {
@@ -79,7 +79,7 @@ def get_users(account_name):
     except Account.DoesNotExist:
         return {
             'statusCode': 404,
-            'body': json.dumps(f"Account '{account_name}' not found")
+            'body': json.dumps(f"Account with ID '{account_id}' not found")
         }
     except Exception as e:
         return {
@@ -89,13 +89,13 @@ def get_users(account_name):
     finally:
         db.close()
 
-def delete_users(account_name, users):
+def delete_users(account_id, users):
     db.connect(reuse_if_open=True)
     deleted = []
     not_found = []
 
     try:
-        account = Account.get(Account.name == account_name)
+        account = Account.get(Account.id == account_id)
 
         for user_info in users:
             if isinstance(user_info, dict):
@@ -126,7 +126,7 @@ def delete_users(account_name, users):
     except Account.DoesNotExist:
         return {
             'statusCode': 404,
-            'body': json.dumps(f"Account '{account_name}' not found")
+            'body': json.dumps(f"Account with ID '{account_id}' not found")
         }
     finally:
         db.close()
@@ -147,21 +147,21 @@ def lambda_handler(event, context):
         else:
             data = event
 
-        account_name = data.get('account')
+        account_id = data.get('account_id')
         users = data.get('users', [])
 
-        if not account_name:
+        if not account_id:
             return {
                 'statusCode': 400,
-                'body': json.dumps("Missing required field: 'account'")
+                'body': json.dumps("Missing required field: 'account_id'")
             }
 
         if method == 'POST':
-            return add_users(account_name, users)
+            return add_users(account_id, users)
         elif method == 'GET':
-            return get_users(account_name)
+            return get_users(account_id)
         elif method == 'DELETE':
-            return delete_users(account_name, users)
+            return delete_users(account_id, users)
         else:
             return {
                 'statusCode': 405,
