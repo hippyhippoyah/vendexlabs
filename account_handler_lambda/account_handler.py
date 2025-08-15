@@ -109,6 +109,12 @@ def lambda_handler(event, context):
             'statusCode': 401,
             'body': json.dumps("Unauthorized: No user email found")
         }
+    if not is_admin_email(email):
+            return {
+                'statusCode': 403,
+                'body': json.dumps("Forbidden: Only admins can create accounts")
+            }
+
 
     try:
         method = event['requestContext']['http']['method']
@@ -126,12 +132,6 @@ def lambda_handler(event, context):
         data = event
 
     if method == 'POST':
-        if not is_admin_email(email):
-            return {
-                'statusCode': 403,
-                'body': json.dumps("Forbidden: Only admins can create accounts")
-            }
-
         account_name = data.get('account')
         users = data.get('users', [])
 

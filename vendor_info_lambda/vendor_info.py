@@ -297,7 +297,6 @@ def lambda_handler(event, context):
         id_or_name = None
         if 'pathParameters' in event and event['pathParameters']:
             id_or_name = event['pathParameters'].get('id_or_name')
-        # Fallback: parse from the path if pathParameters is not set
         if not id_or_name:
             path = event.get('rawPath') or event.get('path', '')
             # path should be like /vendor/{id_or_name} or /vendor/{id_or_name}/security-instances
@@ -329,12 +328,6 @@ def lambda_handler(event, context):
         vendors = data.get('vendors', [])
         update_all_fields = data.get('updateAllFields', True)
         return add_info_to_db(vendors, update_all_fields=update_all_fields)
-    elif route_key.startswith('GET '):
-        vendor_names = event.get('queryStringParameters', {}).get('vendors', [])
-        print(f"Vendor names: {vendor_names}")
-        if isinstance(vendor_names, str):
-            vendor_names = [v.strip() for v in vendor_names.split(',')]
-        return get_vendor_info_from_db(vendor_names)
     else:
         return {
             'statusCode': 400,

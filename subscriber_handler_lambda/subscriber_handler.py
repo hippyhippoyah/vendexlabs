@@ -160,14 +160,15 @@ def lambda_handler(event, context):
     else:
         data = event
 
-    account_id = data.get('account_id')
-    vendor_list_name = data.get('vendor_list')
-    subscriber_email = data.get('subscriber_email')
+    query_params = event.get('queryStringParameters') or {}
+    account_id = query_params.get('account-id')
+    vendor_list_name = query_params.get('vendor-list')
+    subscriber_email = data.get('subscriber-email')
 
     if not account_id or not vendor_list_name:
         return {
             'statusCode': 400,
-            'body': json.dumps("Missing required fields: 'account_id' and 'vendor_list'")
+            'body': json.dumps("Missing required fields: 'account-id', 'vendor-list'")
         }
 
     if method in ['POST', 'DELETE', 'GET']:

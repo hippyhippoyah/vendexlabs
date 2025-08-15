@@ -14,6 +14,16 @@ def get_user_email(event):
         return None
     return claims.get('email')
 
+def is_user_in_account(account_id, email):
+    try:
+        account = Account.get(Account.id == account_id)
+        user = User.get(User.email == email)
+        return AccountUser.select().where(
+            (AccountUser.account == account) & (AccountUser.user == user)
+        ).exists()
+    except (Account.DoesNotExist, User.DoesNotExist):
+        return False
+
 def add_users(account_id, users):
     db.connect(reuse_if_open=True)
     try:
@@ -71,7 +81,7 @@ def get_users(account_id):
     try:
         account = Account.get(Account.id == account_id)
         query = User.select().join(AccountUser).where(AccountUser.account == account)
-        users = [{'email': u.email, 'name': u.name} for u in query]
+        users = [{'email': u.email, 'name': u.name, 'id': u.id} for u in query]
         return {
             'statusCode': 200,
             'body': json.dumps({'users': users})
@@ -131,6 +141,29 @@ def delete_users(account_id, users):
     finally:
         db.close()
 
+def get_user_accounts(email):
+    db.connect(reuse_if_open=True)
+    try:
+        # Get all accounts that the user belongs to
+        query = (Account
+                .select()
+                .join(AccountUser)
+                .join(User)
+                .where(User.email == email))
+        
+        accounts = [{'id': account.id, 'name': account.name, 'active': account.active} for account in query]
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'accounts': accounts})
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f"Error fetching user accounts: {str(e)}")
+        }
+    finally:
+        db.close()
+
 def lambda_handler(event, context):
     try:
         method = event['requestContext']['http']['method'].upper()
@@ -145,15 +178,24 @@ def lambda_handler(event, context):
         if body:
             data = json.loads(body) if isinstance(body, str) else body
         else:
-            data = event
+            data = {}
 
-        account_id = data.get('account_id')
+        query_params = event.get('queryStringParameters') or {}
+        account_id = query_params.get('account-id')
         users = data.get('users', [])
+
+        if method == 'GET' and not account_id:
+            return get_user_accounts(email)
 
         if not account_id:
             return {
                 'statusCode': 400,
-                'body': json.dumps("Missing required field: 'account_id'")
+                'body': json.dumps("Missing required field: 'account-id'")
+            }
+        if not is_user_in_account(account_id, email):
+            return {
+                'statusCode': 403,
+                'body': json.dumps(f"Forbidden: User '{email}' does not have access to account '{account_id}'")
             }
 
         if method == 'POST':

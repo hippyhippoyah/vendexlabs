@@ -131,13 +131,15 @@ def lambda_handler(event, context):
     body = event.get('body')
     data = json.loads(body) if isinstance(body, str) else body or event
 
-    account_id = data.get('account_id')
-    vendor_list_name = data.get('vendor_list')
+    query_params = event.get('queryStringParameters') or {}
+    account_id = query_params.get('account-id')
+    vendor_list_name = query_params.get('vendor-list')
+
     vendors = data.get('vendors', [])
     action = data.get('action')
 
     if not account_id:
-        return {'statusCode': 400, 'body': json.dumps("Missing 'account_id' field")}
+        return {'statusCode': 400, 'body': json.dumps("Missing 'account-id' field")}
 
     if not is_user_in_account(account_id, email):
         return {'statusCode': 403, 'body': json.dumps("Forbidden: Not authorized for this account")}
