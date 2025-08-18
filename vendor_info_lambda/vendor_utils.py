@@ -1,14 +1,15 @@
 import json
 import requests
 import time
+import os
 from datetime import datetime, timezone
 
-GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
-GOOGLE_API_KEY = "AIzaSyCCpPGwCnqRjUBSK2WAwVJnslNno2rI3pU"
-GOOGLE_CSE_ID = "e16cb7c6a330f458e"
+GOOGLE_SEARCH_URL = os.getenv("GOOGLE_SEARCH_URL", "https://www.googleapis.com/customsearch/v1")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
-PERPLEXITY_API_KEY = "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"
-PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+PERPLEXITY_API_URL = os.getenv("PERPLEXITY_API_URL", "https://api.perplexity.ai/chat/completions")
 
 total_tokens_used = 0
 

@@ -162,6 +162,8 @@ resource "aws_lambda_function" "vendor_info_lambda" {
       GOOGLE_CSE_ID  = var.google_cse_id
       GOOGLE_SEARCH_URL = var.google_search_url
       OPENAI_API_URL = var.openai_api_url
+      PERPLEXITY_API_KEY = var.perplexity_api_key
+      PERPLEXITY_API_URL = var.perplexity_api_url
     }
   }
   vpc_config {
