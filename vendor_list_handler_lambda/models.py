@@ -1,3 +1,4 @@
+import uuid
 from peewee import *
 from config import db
 
@@ -6,6 +7,7 @@ class BaseModel(Model):
         database = db
 
 class Account(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = TextField(unique=True)
     active = BooleanField(default=True)
 
@@ -13,6 +15,7 @@ class Account(BaseModel):
         table_name = 'accounts'
 
 class User(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     email = TextField(unique=True)
     name = TextField(null=True)
 
@@ -28,12 +31,14 @@ class AccountUser(BaseModel):
         primary_key = CompositeKey('account', 'user')
 
 class Vendor(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = TextField(unique=True)
 
     class Meta:
         table_name = 'vendors'
 
 class VendorList(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = TextField()
     account = ForeignKeyField(Account, backref="vendor_lists")
 

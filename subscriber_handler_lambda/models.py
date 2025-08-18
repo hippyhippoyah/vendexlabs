@@ -1,4 +1,5 @@
 import peewee
+import uuid
 from peewee import *
 from config import db
 
@@ -7,6 +8,7 @@ class BaseModel(Model):
         database = db
 
 class User(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = CharField(null=True)
     email = CharField(unique=True)
 
@@ -14,6 +16,7 @@ class User(BaseModel):
         table_name = 'users'
 
 class Account(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = CharField(unique=True)
     active = BooleanField(default=True)
 
@@ -29,18 +32,21 @@ class AccountUser(BaseModel):
         primary_key = CompositeKey('account', 'user')
 
 class Admin(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     email = CharField(unique=True)
 
     class Meta:
         table_name = 'admins'
 
 class Vendor(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = CharField(unique=True)
 
     class Meta:
         table_name = 'vendors'
 
 class VendorList(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = CharField()
     account = ForeignKeyField(Account, backref='vendor_lists')
 
@@ -56,6 +62,7 @@ class VendorListVendor(BaseModel):
         primary_key = CompositeKey('vendor_list', 'vendor')
 
 class Subscriber(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
     email = CharField(unique=True)
     verified = BooleanField(default=False)
 

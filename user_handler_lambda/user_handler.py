@@ -1,4 +1,5 @@
 import json
+import uuid
 from peewee import IntegrityError
 from config import db
 from models import User, Account, AccountUser
@@ -16,18 +17,22 @@ def get_user_email(event):
 
 def is_user_in_account(account_id, email):
     try:
-        account = Account.get(Account.id == account_id)
+        # Convert account_id string to UUID
+        account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
+        account = Account.get(Account.id == account_uuid)
         user = User.get(User.email == email)
         return AccountUser.select().where(
             (AccountUser.account == account) & (AccountUser.user == user)
         ).exists()
-    except (Account.DoesNotExist, User.DoesNotExist):
+    except (Account.DoesNotExist, User.DoesNotExist, ValueError):
         return False
 
 def add_users(account_id, users):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.id == account_id)
+        # Convert account_id string to UUID
+        account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
+        account = Account.get(Account.id == account_uuid)
         added = []
         exists = []
 
@@ -67,6 +72,11 @@ def add_users(account_id, users):
             'statusCode': 404,
             'body': json.dumps(f"Account with ID '{account_id}' not found")
         }
+    except ValueError:
+        return {
+            'statusCode': 400,
+            'body': json.dumps(f"Invalid UUID format for account ID: '{account_id}'")
+        }
     except Exception as e:
         db.rollback()
         return {
@@ -79,9 +89,11 @@ def add_users(account_id, users):
 def get_users(account_id):
     db.connect(reuse_if_open=True)
     try:
-        account = Account.get(Account.id == account_id)
+        # Convert account_id string to UUID
+        account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
+        account = Account.get(Account.id == account_uuid)
         query = User.select().join(AccountUser).where(AccountUser.account == account)
-        users = [{'email': u.email, 'name': u.name, 'id': u.id} for u in query]
+        users = [{'email': u.email, 'name': u.name, 'id': str(u.id)} for u in query]
         return {
             'statusCode': 200,
             'body': json.dumps({'users': users})
@@ -90,6 +102,11 @@ def get_users(account_id):
         return {
             'statusCode': 404,
             'body': json.dumps(f"Account with ID '{account_id}' not found")
+        }
+    except ValueError:
+        return {
+            'statusCode': 400,
+            'body': json.dumps(f"Invalid UUID format for account ID: '{account_id}'")
         }
     except Exception as e:
         return {
@@ -105,7 +122,9 @@ def delete_users(account_id, users):
     not_found = []
 
     try:
-        account = Account.get(Account.id == account_id)
+        # Convert account_id string to UUID
+        account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
+        account = Account.get(Account.id == account_uuid)
 
         for user_info in users:
             if isinstance(user_info, dict):
@@ -138,6 +157,11 @@ def delete_users(account_id, users):
             'statusCode': 404,
             'body': json.dumps(f"Account with ID '{account_id}' not found")
         }
+    except ValueError:
+        return {
+            'statusCode': 400,
+            'body': json.dumps(f"Invalid UUID format for account ID: '{account_id}'")
+        }
     finally:
         db.close()
 
@@ -151,7 +175,7 @@ def get_user_accounts(email):
                 .join(User)
                 .where(User.email == email))
         
-        accounts = [{'id': account.id, 'name': account.name, 'active': account.active} for account in query]
+        accounts = [{'id': str(account.id), 'name': account.name, 'active': account.active} for account in query]
         return {
             'statusCode': 200,
             'body': json.dumps({'accounts': accounts})

@@ -1,7 +1,11 @@
 import json
+import logging
 from peewee import IntegrityError
 from config import db
 from models import Account, User, AccountUser, VendorList, Admin
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def get_user_email(event):
     claims = None
@@ -33,22 +37,29 @@ def add_account(account_name, users):
                 db.rollback()
                 already_exists.append(user_email)
 
-        master_list = VendorList.get_by_id(1)
+        master_list, master_created = VendorList.get_or_create(
+            name='master-list', 
+            account=account
+        )
 
         return {
             'statusCode': 200,
             'body': json.dumps({
+                'account_id': str(account.id),
+                'account_name': account_name,
                 'account_created': created,
                 'users_added': created_users,
                 'users_already_exist': already_exists,
-                'vendor_list': 'master list'
+                'vendor_list': 'master-list',
+                'vendor_list_created': master_created
             })
         }
     except Exception as e:
+        logger.error(f"Error creating account '{account_name}': {str(e)}")
         db.rollback()
         return {
             'statusCode': 500,
-            'body': json.dumps(f"Error creating account '{account_name}': {str(e)}")
+            'body': json.dumps({'error': f"Error creating account '{account_name}': {str(e)}"})
         }
     finally:
         db.close()
@@ -57,118 +68,140 @@ def get_accounts():
     db.connect(reuse_if_open=True)
     try:
         query = Account.select()
-        accounts = [{'id': a.id, 'name': a.name, 'active': a.active} for a in query]
+        accounts = [{'id': str(a.id), 'name': a.name, 'active': a.active} for a in query]
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'accounts': accounts})
+        }
     except Exception as e:
-        db.close()
+        logger.error(f"Error fetching accounts: {str(e)}")
         return {
             'statusCode': 500,
-            'body': json.dumps(f"Error fetching accounts: {str(e)}")
+            'body': json.dumps({'error': f"Error fetching accounts: {str(e)}"})
         }
-    db.close()
-    return {
-        'statusCode': 200,
-        'body': json.dumps({'accounts': accounts})
-    }
+    finally:
+        db.close()
 
 def delete_accounts(account_ids):
     db.connect(reuse_if_open=True)
     deleted = []
     not_found = []
-    for acc_id in account_ids:
-        try:
-            account = Account.get_or_none(Account.id == acc_id)
-            if not account:
-                not_found.append(acc_id)
-                continue
+    
+    try:
+        for acc_id in account_ids:
+            try:
+                account = Account.get_or_none(Account.id == acc_id)
+                if not account:
+                    not_found.append(str(acc_id))
+                    continue
 
-            AccountUser.delete().where(AccountUser.account == account).execute()
-            VendorList.delete().where(VendorList.account == account).execute()
-            Account.delete().where(Account.id == account.id).execute()
-            deleted.append(acc_id)
-        except Exception as e:
-            db.rollback()
-            return {
-                'statusCode': 500,
-                'body': json.dumps(f"Error deleting account ID '{acc_id}': {str(e)}")
-            }
-    db.close()
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'deleted': deleted,
-            'not_found': not_found
-        })
-    }
+                AccountUser.delete().where(AccountUser.account == account).execute()
+                VendorList.delete().where(VendorList.account == account).execute()
+                Account.delete().where(Account.id == account.id).execute()
+                
+                deleted.append(str(acc_id))
+                
+            except Exception as e:
+                logger.error(f"Error deleting account ID '{acc_id}': {str(e)}")
+                db.rollback()
+                return {
+                    'statusCode': 500,
+                    'body': json.dumps({'error': f"Error deleting account ID '{acc_id}': {str(e)}"})
+                }
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'deleted': deleted,
+                'not_found': not_found
+            })
+        }
+    except Exception as e:
+        logger.error(f"Error in delete_accounts: {str(e)}")
+        db.rollback()
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': f"Error deleting accounts: {str(e)}"})
+        }
+    finally:
+        db.close()
 
 def lambda_handler(event, context):
-    print(event)
-
-    email = get_user_email(event)
-    if not email:
-        return {
-            'statusCode': 401,
-            'body': json.dumps("Unauthorized: No user email found")
-        }
-    if not is_admin_email(email):
-            return {
-                'statusCode': 403,
-                'body': json.dumps("Forbidden: Only admins can create accounts")
-            }
-
+    logger.info(f"Received event: {json.dumps(event)}")
 
     try:
-        method = event['requestContext']['http']['method']
-        method = method.upper()
-    except KeyError:
-        return {
-            'statusCode': 400,
-            'body': json.dumps('Bad Request: No HTTP method found')
-        }
-
-    body = event.get('body')
-    if body:
-        data = json.loads(body) if isinstance(body, str) else body
-    else:
-        data = event
-
-    if method == 'POST':
-        account_name = data.get('account')
-        users = data.get('users', [])
-
-        if not account_name:
+        email = get_user_email(event)
+        if not email:
             return {
-                'statusCode': 400,
-                'body': json.dumps("Missing required field: 'account'")
+                'statusCode': 401,
+                'body': json.dumps({'error': 'Unauthorized: No user email found'})
             }
 
-        return add_account(account_name, users)
-
-    elif method == 'GET':
-        return get_accounts()
-
-    elif method == 'DELETE':
         if not is_admin_email(email):
             return {
                 'statusCode': 403,
-                'body': json.dumps("Forbidden: Only admins can delete accounts")
+                'body': json.dumps({'error': 'Forbidden: Only admins can manage accounts'})
             }
 
-        # Unified handling of single or multiple account deletion by ID
-        input_account_ids = []
-        if 'account_id' in data:
-            input_account_ids = [data['account_id']]
-        elif 'account_ids' in data:
-            input_account_ids = data['account_ids']
-        else:
+        try:
+            method = event['requestContext']['http']['method'].upper()
+        except KeyError:
             return {
                 'statusCode': 400,
-                'body': json.dumps("Missing required field: 'account_id' or 'account_ids'")
+                'body': json.dumps({'error': 'Bad Request: No HTTP method found'})
             }
 
-        return delete_accounts(input_account_ids)
+        body = event.get('body')
+        if body:
+            try:
+                data = json.loads(body) if isinstance(body, str) else body
+            except json.JSONDecodeError:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({'error': 'Bad Request: Invalid JSON in request body'})
+                }
+        else:
+            data = event
 
-    else:
+        if method == 'POST':
+            account_name = data.get('account')
+            users = data.get('users', [])
+
+            if not account_name:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({'error': "Missing required field: 'account'"})
+                }
+
+            return add_account(account_name, users)
+
+        elif method == 'GET':
+            return get_accounts()
+
+        elif method == 'DELETE':
+            input_account_ids = []
+            if 'account_id' in data:
+                input_account_ids = [data['account_id']]
+            elif 'account_ids' in data:
+                input_account_ids = data['account_ids']
+            else:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({'error': "Missing required field: 'account_id' or 'account_ids'"})
+                }
+
+            return delete_accounts(input_account_ids)
+
+        else:
+            return {
+                'statusCode': 405,
+                'body': json.dumps({'error': 'Method Not Allowed'})
+            }
+
+    except Exception as e:
+        logger.error(f"Unexpected error in lambda_handler: {str(e)}")
         return {
-            'statusCode': 405,
-            'body': json.dumps('Method Not Allowed')
+            'statusCode': 500,
+            'body': json.dumps({'error': 'Internal server error'})
         }

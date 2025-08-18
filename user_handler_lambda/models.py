@@ -1,4 +1,5 @@
 import peewee
+import uuid
 from config import db
 
 class BaseModel(peewee.Model):
@@ -6,6 +7,7 @@ class BaseModel(peewee.Model):
         database = db
 
 class User(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     name = peewee.TextField(null=True)
     email = peewee.TextField(unique=True)
 
@@ -13,6 +15,7 @@ class User(BaseModel):
         table_name = 'users'
 
 class Account(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     name = peewee.TextField(unique=True)
     active = peewee.BooleanField(default=True)
 
