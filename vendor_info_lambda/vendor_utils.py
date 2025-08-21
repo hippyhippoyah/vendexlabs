@@ -10,6 +10,7 @@ GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 PERPLEXITY_API_URL = os.getenv("PERPLEXITY_API_URL", "https://api.perplexity.ai/chat/completions")
+print("Using Perplexity API KEY:", PERPLEXITY_API_KEY)
 
 total_tokens_used = 0
 
@@ -59,39 +60,42 @@ def perplexity_json_response(prompt, model="sonar", response_format=None):
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json"
     }
-    
     payload = {
         "model": model,
         "messages": [
             {"role": "user", "content": prompt}
         ],
-        "max_tokens": 2000
+        "max_tokens": 2000,
+        "top_p": 0.5,
+        "web_search_options": {
+            "search_context_size": "medium"
+        }
     }
-    
     if response_format:
         payload["response_format"] = response_format
-    
     try:
         response = requests.post(PERPLEXITY_API_URL, json=payload, headers=headers)
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         raise
-
     resp_json = response.json()
-    
     if 'usage' in resp_json:
         usage = resp_json['usage']
         tokens_used = usage.get('total_tokens', 0)
         global total_tokens_used
         total_tokens_used += tokens_used
-    
+    import re
     try:
         choices = resp_json.get("choices", [])
+        # Optionally print search results for debugging
+        # print(json.dumps(resp_json.get("search_results", []), indent=2))
         if choices:
             content = choices[0].get("message", {}).get("content", "")
             if content:
+                # Remove bracketed references like [1][3][5]
+                content_clean = re.sub(r"\s*\[\d+\]", "", content)
                 try:
-                    return json.loads(content)
+                    return json.loads(content_clean)
                 except json.JSONDecodeError:
                     return None
         return None
@@ -113,7 +117,7 @@ def get_security_and_risk_data(website_url):
         "risk_categories": ["data_processing", "third_party_sharing"]
     }
 
-def gather_additional_vendor_info(vendor_name, website_url=None):
+def gather_additional_vendor_info(vendor_name, website_url=None, model="sonar"):
     prompt = (
         f"For the company {vendor_name}, find the following information:\n"
         f"Website URL context: {website_url or 'Not provided'}\n"
@@ -142,14 +146,22 @@ def gather_additional_vendor_info(vendor_name, website_url=None):
         }
     }
     
-    return perplexity_json_response(prompt, response_format=response_format)
-def gather_basic_company_info(vendor_name):
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
+def gather_basic_company_info(vendor_name, model="sonar"):
     prompt = (
         f"Given the company {vendor_name}, extract the following basic information:\n"
-        "Provide accurate factual data only. If information is not available, use null.\n"
-        "For website_url, provide the official company website URL."
+        "- company_description: Brief description of what the company does\n"
+        "- business_type: Whether they serve 'B2B', 'B2C', or 'Government' customers\n"
+        "- founded_year: Year the company was founded (number or null if unknown)\n"
+        "- employee_count: Current number of employees (number or null if unknown)\n"
+        "- industry: Primary industry sector\n"
+        "- primary_product: Main product or service offering\n"
+        "- headquarters_location: City and country of headquarters\n"
+        "- website_url: Official company website URL\n\n"
+        "For employee_count, look for recent headcount information, LinkedIn employee estimates, "
+        "or company size data from business databases. If no specific number is available, use null.\n"
+        "Provide accurate factual data only. If information is not available, use null. DO NOT MAKE UP INFORMATION"
     )
-    
     response_format = {
         'type': 'json_schema',
         'json_schema': {
@@ -169,10 +181,9 @@ def gather_basic_company_info(vendor_name):
             }
         }
     }
-    
-    return perplexity_json_response(prompt, response_format=response_format)
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
 
-def gather_business_maturity_info(vendor_name):
+def gather_business_maturity_info(vendor_name, model="sonar"):
     prompt = (
         f"For the company {vendor_name}, provide business maturity information:\n"
         "- company_type: 'Private' or 'Public'\n"
@@ -204,9 +215,9 @@ def gather_business_maturity_info(vendor_name):
         }
     }
     
-    return perplexity_json_response(prompt, response_format=response_format)
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
 
-def gather_security_compliance_info(vendor_name):
+def gather_security_compliance_info(vendor_name, model="sonar"):
     prompt = (
         f"For the company {vendor_name}, provide security and compliance information:\n"
         "- compliance_certifications: List of security certifications (SOC2, ISO27001, etc.)\n"
@@ -228,9 +239,9 @@ def gather_security_compliance_info(vendor_name):
         }
     }
     
-    return perplexity_json_response(prompt, response_format=response_format)
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
 
-def gather_privacy_controls_info(vendor_name):
+def gather_privacy_controls_info(vendor_name, model="sonar"):
     prompt = (
         f"For the company {vendor_name}, provide data privacy and handling information:\n"
         "- shared_data_description: How they share data with third parties\n"
@@ -260,9 +271,9 @@ def gather_privacy_controls_info(vendor_name):
         }
     }
     
-    return perplexity_json_response(prompt, response_format=response_format)
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
 
-def gather_vendor_data(vendor_name, website_url=None):
+def gather_vendor_data(vendor_name, website_url=None, model="sonar"):
     result = {
         'vendors': {
             'vendor': vendor_name,
@@ -274,7 +285,7 @@ def gather_vendor_data(vendor_name, website_url=None):
         'business_maturity': {}
     }
     
-    basic_info = gather_basic_company_info(vendor_name)
+    basic_info = gather_basic_company_info(vendor_name, model=model)
     if basic_info:
         result['vendors'].update(basic_info)
         if not website_url:
@@ -282,20 +293,20 @@ def gather_vendor_data(vendor_name, website_url=None):
     else:
         print("  - WARNING: Failed to gather basic company info")
     
-    maturity_info = gather_business_maturity_info(vendor_name)
+    maturity_info = gather_business_maturity_info(vendor_name, model=model)
     if maturity_info:
         result['vendors']['customer_count_estimate'] = maturity_info.pop('customer_count_estimate', 0)
         result['business_maturity'] = maturity_info
     else:
         print("  - WARNING: Failed to gather business maturity info")
     
-    security_info = gather_security_compliance_info(vendor_name)
+    security_info = gather_security_compliance_info(vendor_name, model=model)
     if security_info:
         result['vendor_security'] = security_info
     else:
         print("  - WARNING: Failed to gather security compliance info")
     
-    privacy_info = gather_privacy_controls_info(vendor_name)
+    privacy_info = gather_privacy_controls_info(vendor_name, model=model)
     if privacy_info:
         result['privacy_controls'] = privacy_info
     else:
@@ -303,7 +314,7 @@ def gather_vendor_data(vendor_name, website_url=None):
     
     time.sleep(2)
     
-    additional_info = gather_additional_vendor_info(vendor_name, website_url)
+    additional_info = gather_additional_vendor_info(vendor_name, website_url, model=model)
     if additional_info:
         result['vendors'].update(additional_info)
     else:

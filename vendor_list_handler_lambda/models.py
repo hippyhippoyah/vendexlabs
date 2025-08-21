@@ -40,7 +40,8 @@ class Vendor(BaseModel):
 class VendorList(BaseModel):
     id = UUIDField(primary_key=True, default=uuid.uuid4)
     name = TextField()
-    account = ForeignKeyField(Account, backref="vendor_lists")
+    account = ForeignKeyField(Account, backref='vendor_lists', null=True)
+    user = ForeignKeyField(User, backref='personal_vendor_lists', null=True)
 
     class Meta:
         table_name = 'vendor_lists'

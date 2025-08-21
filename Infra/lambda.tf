@@ -49,13 +49,6 @@ data "archive_file" "rss_lambda_zip" {
   output_path = "${path.module}/RSS-lambda.zip"
 }
 
-# Archive the Subscription Lambda source code
-data "archive_file" "subscription_lambda_zip" {
-  type        = "zip"
-  source_dir  = "../subscription_handler_lambda"
-  output_path = "${path.module}/Subscription-lambda.zip"
-}
-
 # Archive the Vendor Info Lambda source code
 data "archive_file" "vendor_info_lambda_zip" {
   type        = "zip"
@@ -91,6 +84,13 @@ data "archive_file" "vendor_list_handler_lambda_zip" {
   output_path = "${path.module}/vendor-list-handler-lambda.zip"
 }
 
+# Archive the Individual Subscription Lambda source code
+data "archive_file" "individual_subscription_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../individual_subscription_handler"
+  output_path = "${path.module}/individual-subscription-lambda.zip"
+}
+
 resource "aws_lambda_function" "lambda" {
   function_name    = "lambda-RSS-handler"
   runtime          = "python3.9"
@@ -117,13 +117,13 @@ resource "aws_lambda_function" "lambda" {
   }
 }
 
-resource "aws_lambda_function" "subscribe_lambda" {
-  function_name    = "lambda-subscribe-handler"
+resource "aws_lambda_function" "individual_subscription_lambda" {
+  function_name    = "lambda-individual-subscription-handler"
   runtime          = "python3.9"
   role             = aws_iam_role.vl_lambda_role.arn
-  handler          = "subscription_manager.lambda_handler"
-  filename         = data.archive_file.subscription_lambda_zip.output_path
-  source_code_hash = data.archive_file.subscription_lambda_zip.output_base64sha256
+  handler          = "individual_subscription_manager.lambda_handler"
+  filename         = data.archive_file.individual_subscription_lambda_zip.output_path
+  source_code_hash = data.archive_file.individual_subscription_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
   layers           = [aws_lambda_layer_version.rss_layer.arn]

@@ -47,7 +47,8 @@ class Vendor(BaseModel):
 class VendorList(BaseModel):
     id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     name = peewee.TextField()
-    account = peewee.ForeignKeyField(Account, backref='vendor_lists')
+    account = peewee.ForeignKeyField(Account, backref='vendor_lists', null=True)
+    user = peewee.ForeignKeyField(User, backref='personal_vendor_lists', null=True)
 
     class Meta:
         table_name = 'vendor_lists'

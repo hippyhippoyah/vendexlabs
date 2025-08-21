@@ -6,12 +6,12 @@ from vendor_utils import gather_vendor_data
 import uuid
 from datetime import datetime
 
-def update_or_create_vendor(vendor_name, update_all_fields=True):
+def update_or_create_vendor(vendor_name, update_all_fields=True, model="sonar"):
     """Simple function to update or create vendor with all related data"""
     normalized_vendor = basename(vendor_name).upper()
     
     # Get vendor data
-    vendor_data = gather_vendor_data(normalized_vendor)
+    vendor_data = gather_vendor_data(normalized_vendor, model=model)
     if not vendor_data or 'vendors' not in vendor_data:
         return None, f"Could not generate info for {normalized_vendor}"
     
@@ -105,7 +105,7 @@ def get_complete_vendor_info(vendor_obj):
     return vendor_dict
 
 # Main API functions - much simpler now
-def add_info_to_db(vendors, update_all_fields=True):
+def add_info_to_db(vendors, update_all_fields=True, model="sonar"):
     if not vendors:
         return {'statusCode': 400, 'body': json.dumps('No vendors to add.')}
     
@@ -115,7 +115,7 @@ def add_info_to_db(vendors, update_all_fields=True):
     
     try:
         for vendor in vendors:
-            vendor_obj, status = update_or_create_vendor(vendor, update_all_fields)
+            vendor_obj, status = update_or_create_vendor(vendor, update_all_fields, model=model)
             if vendor_obj:
                 if status == "created":
                     inserted_vendors.append(vendor_obj.vendor)
@@ -276,7 +276,8 @@ def lambda_handler(event, context):
         data = json.loads(body) if isinstance(body, str) else (body or event)
         vendors = data.get('vendors', [])
         update_all_fields = data.get('updateAllFields', True)
-        return add_info_to_db(vendors, update_all_fields=update_all_fields)
+        model = data.get('model', 'sonar')
+        return add_info_to_db(vendors, update_all_fields=update_all_fields, model=model)
     
     return {'statusCode': 400, 'body': json.dumps('Bad Request: Invalid routeKey')}
 
