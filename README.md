@@ -14,6 +14,8 @@ Current Iteration (V1.1) sends email notifications
 A simplified diagram of the main parts
 ![AWS Architecture Diagram](aws-architecture.png)
 
+- API Gateway and Cognito are managed externally. 
+
 
 ## Getting Started
 ### Prerequisites
@@ -46,13 +48,7 @@ subscription_version = "your_version"
 
 
 ## Versions
-V1.1: Added parsing for 8 feeds sending email to subscribers every 3h for their subscribed vendors. 
-V1.2: Added dedupe handling
+1.0 Basic Individual User Subscription Handling
+1.1 Organization Model
 
-## Todo for next version
-- Move Infra out of VPC to reduce costs ($35/month NAT gateway)
-- Implement ORG manager endpoint
-- Finish Vendor Analysis Page and Parsing of Information
-- Restructure Lambdas to Add Admins, Orgs, and Tenants. (Currently only support for individuals and Tenants)
-- Fix dedupe
-- Still very much a WIP will clean up Repo before public (random files not needed and might be sensitive)
+## Future Improvements

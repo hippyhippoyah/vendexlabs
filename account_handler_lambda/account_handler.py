@@ -18,8 +18,22 @@ def get_user_email(event):
         return None
     return claims.get('email')
 
-def is_admin_email(email):
-    return Admin.get_or_none(Admin.email == email) is not None
+
+# Checks if the user belongs to the 'Admins' group in Cognito claims
+def is_admin_claim(event):
+    claims = None
+    authorizer = event['requestContext'].get('authorizer', {})
+    if 'jwt' in authorizer and 'claims' in authorizer['jwt']:
+        claims = authorizer['jwt']['claims']
+    elif 'claims' in authorizer:
+        claims = authorizer['claims']
+    else:
+        return False
+    groups = claims.get('cognito:groups', [])
+    print(f"User groups from claims: {groups}")
+    if isinstance(groups, str):
+        groups = [g.strip() for g in groups.split(',')]
+    return any('Admins' in g for g in groups)
 
 def add_account(account_name, users):
     db.connect(reuse_if_open=True)
@@ -138,7 +152,7 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Unauthorized: No user email found'})
             }
 
-        if not is_admin_email(email):
+        if not is_admin_claim(event):
             return {
                 'statusCode': 403,
                 'body': json.dumps({'error': 'Forbidden: Only admins can manage accounts'})

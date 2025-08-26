@@ -6,6 +6,23 @@ from vendor_utils import gather_vendor_data
 import uuid
 from datetime import datetime
 
+
+def is_admin_claim(event):
+    claims = None
+    authorizer = event['requestContext'].get('authorizer', {})
+    if 'jwt' in authorizer and 'claims' in authorizer['jwt']:
+        claims = authorizer['jwt']['claims']
+    elif 'claims' in authorizer:
+        claims = authorizer['claims']
+    else:
+        return False
+    groups = claims.get('cognito:groups', [])
+    print(f"User groups from claims: {groups}")
+    if isinstance(groups, str):
+        groups = [g.strip() for g in groups.split(',')]
+    return any('Admins' in g for g in groups)
+
+
 def update_or_create_vendor(vendor_name, update_all_fields=True, model="sonar"):
     """Simple function to update or create vendor with all related data"""
     normalized_vendor = basename(vendor_name).upper()
@@ -273,6 +290,8 @@ def lambda_handler(event, context):
     
     if route_key.startswith('POST '):
         body = event.get('body')
+        if is_admin_claim(event) is False:
+            return {'statusCode': 403, 'body': json.dumps('Forbidden: Admins only')}
         data = json.loads(body) if isinstance(body, str) else (body or event)
         vendors = data.get('vendors', [])
         update_all_fields = data.get('updateAllFields', True)
