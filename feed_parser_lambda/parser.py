@@ -111,6 +111,7 @@ def create_entries(feeds, last_published):
         for entry in feed.entries:
             article_text = fetch_article_text(entry.link)
             if not article_text:
+                logging.info(f"Skipping article with no text: {entry.link}")
                 continue
             entry_published = dateutil.parser.parse(entry.published) if hasattr(entry, 'published') else None
             if not entry_published or entry_published <= last_published:

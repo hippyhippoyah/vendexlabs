@@ -24,14 +24,13 @@ def is_user_in_account(account_id, email):
     except (Account.DoesNotExist, User.DoesNotExist):
         return False
 
-def add_subscriber(account_id, vendor_list_name, subscriber_email):
+def add_subscriber(account_id, vendor_list_id, subscriber_email):
     db.connect(reuse_if_open=True)
     try:
         account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get(
-            (VendorList.name == vendor_list_name) & (VendorList.account == account)
+            (VendorList.id == vendor_list_id) & (VendorList.account == account)
         )
-        # Support single or multiple emails
         emails = subscriber_email if isinstance(subscriber_email, list) else [subscriber_email]
         added = []
         already_exists = []
@@ -41,7 +40,6 @@ def add_subscriber(account_id, vendor_list_name, subscriber_email):
                 vendor_list=vendor_list,
                 subscriber=subscriber
             )
-            # Placeholder: Trigger verification email to subscriber
             print(f"Trigger verification email to {email}")
             if created:
                 added.append(email)
@@ -65,15 +63,14 @@ def add_subscriber(account_id, vendor_list_name, subscriber_email):
     finally:
         db.close()
 
-def get_subscribers(account_id, vendor_list_name):
+def get_subscribers(account_id, vendor_list_id):
     db.connect(reuse_if_open=True)
     try:
         account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get(
-            (VendorList.name == vendor_list_name) & (VendorList.account == account)
+            (VendorList.id == vendor_list_id) & (VendorList.account == account)
         )
 
-        # Use correct join and backref for VendorListSubscriber
         subscribers = [
             {"email": s.subscriber.email, "verified": s.subscriber.verified}
             for s in VendorListSubscriber.select().where(
@@ -92,12 +89,12 @@ def get_subscribers(account_id, vendor_list_name):
     finally:
         db.close()
 
-def delete_subscriber(account_id, vendor_list_name, subscriber_email):
+def delete_subscriber(account_id, vendor_list_id, subscriber_email):
     db.connect(reuse_if_open=True)
     try:
         account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get(
-            (VendorList.name == vendor_list_name) & (VendorList.account == account)
+            (VendorList.id == vendor_list_id) & (VendorList.account == account)
         )
         emails = subscriber_email if isinstance(subscriber_email, list) else [subscriber_email]
         removed = []
@@ -178,19 +175,18 @@ def lambda_handler(event, context):
 
     query_params = event.get('queryStringParameters') or {}
     account_id = query_params.get('account-id')
-    vendor_list_name = query_params.get('vendor-list')
+    vendor_list_id = query_params.get('vendor-list')
     subscriber_email = data.get('subscriber-email')
-    # Accept both single string and list for subscriber-email
     if isinstance(subscriber_email, str) and subscriber_email.startswith('[') and subscriber_email.endswith(']'):
         try:
             subscriber_email = json.loads(subscriber_email)
         except Exception:
             pass
 
-    if not account_id or not vendor_list_name:
+    if not account_id or not vendor_list_id:
         return {
             'statusCode': 400,
-            'body': json.dumps("Missing required fields: 'account-id', 'vendor-list'")
+            'body': json.dumps("Missing required fields: 'account-id', 'vendor-list-id'")
         }
 
     if method in ['POST', 'DELETE', 'GET']:
@@ -206,10 +202,10 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'body': json.dumps("Missing required field: 'subscriber-email'")
             }
-        return add_subscriber(account_id, vendor_list_name, subscriber_email)
+        return add_subscriber(account_id, vendor_list_id, subscriber_email)
 
     elif method == 'GET':
-        return get_subscribers(account_id, vendor_list_name)
+        return get_subscribers(account_id, vendor_list_id)
 
     elif method == 'DELETE':
         if not subscriber_email:
@@ -217,7 +213,7 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'body': json.dumps("Missing required field: 'subscriber-email'")
             }
-        return delete_subscriber(account_id, vendor_list_name, subscriber_email)
+        return delete_subscriber(account_id, vendor_list_id, subscriber_email)
 
     elif method == 'PATCH':
         if not subscriber_email:
@@ -225,7 +221,6 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'body': json.dumps("Missing required field: 'subscriber-email'")
             }
-        # Only allow PATCH for single email (self)
         if isinstance(subscriber_email, list):
             return {
                 'statusCode': 400,

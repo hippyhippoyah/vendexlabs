@@ -63,17 +63,18 @@ def add_vendor_list(account_id, vendor_list_name):
     finally:
         db.close()
 
-def delete_vendor_list(account_id, vendor_list_name):
+def delete_vendor_list(account_id, vendor_list_id):
     db.connect(reuse_if_open=True)
     try:
         # Convert account_id string to UUID
         account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
         account = Account.get(Account.id == account_uuid)
-        vendor_list = VendorList.get((VendorList.name == vendor_list_name) & (VendorList.account == account))
+        vendor_list_uuid = uuid.UUID(vendor_list_id) if isinstance(vendor_list_id, str) else vendor_list_id
+        vendor_list = VendorList.get((VendorList.id == vendor_list_uuid) & (VendorList.account == account))
         vendor_list.delete_instance(recursive=True)
         return {
             'statusCode': 200,
-            'body': json.dumps(f"Vendor list '{vendor_list_name}' deleted.")
+            'body': json.dumps(f"Vendor list '{vendor_list_id}' deleted.")
         }
     except VendorList.DoesNotExist:
         return {
@@ -93,13 +94,14 @@ def delete_vendor_list(account_id, vendor_list_name):
     finally:
         db.close()
 
-def add_vendors_to_list(account_id, vendor_list_name, vendors):
+def add_vendors_to_list(account_id, vendor_list_id, vendors):
     db.connect(reuse_if_open=True)
     try:
         # Convert account_id string to UUID
         account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
         account = Account.get(Account.id == account_uuid)
-        vendor_list = VendorList.get((VendorList.name == vendor_list_name) & (VendorList.account == account))
+        vendor_list_uuid = uuid.UUID(vendor_list_id) if isinstance(vendor_list_id, str) else vendor_list_id
+        vendor_list = VendorList.get((VendorList.id == vendor_list_uuid) & (VendorList.account == account))
         added = []
         for vendor_name in vendors:
             vendor = Vendor.get_or_create(name=vendor_name)[0]
@@ -181,13 +183,14 @@ def remove_vendors_from_list(account_id, vendor_list_name, vendors):
     finally:
         db.close()
 
-def replace_vendors_in_list(account_id, vendor_list_name, vendors):
+def remove_vendors_from_list(account_id, vendor_list_id, vendors):
     db.connect(reuse_if_open=True)
     try:
         # Convert account_id string to UUID
         account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
         account = Account.get(Account.id == account_uuid)
-        vendor_list = VendorList.get((VendorList.name == vendor_list_name) & (VendorList.account == account))
+        vendor_list_uuid = uuid.UUID(vendor_list_id) if isinstance(vendor_list_id, str) else vendor_list_id
+        vendor_list = VendorList.get((VendorList.id == vendor_list_uuid) & (VendorList.account == account))
         
         # Remove all existing vendors
         VendorListVendor.delete().where(VendorListVendor.vendor_list == vendor_list).execute()
@@ -269,13 +272,14 @@ def get_vendor_lists(account_id):
     finally:
         db.close()
 
-def get_vendors_from_list(account_id, vendor_list_name):
+def get_vendors_from_list(account_id, vendor_list_id):
     db.connect(reuse_if_open=True)
     try:
         # Convert account_id string to UUID
         account_uuid = uuid.UUID(account_id) if isinstance(account_id, str) else account_id
         account = Account.get(Account.id == account_uuid)
-        vendor_list = VendorList.get((VendorList.name == vendor_list_name) & (VendorList.account == account))
+        vendor_list_uuid = uuid.UUID(vendor_list_id) if isinstance(vendor_list_id, str) else vendor_list_id
+        vendor_list = VendorList.get((VendorList.id == vendor_list_uuid) & (VendorList.account == account))
         vendors = [
             v.name for v in Vendor.select().join(VendorListVendor).where(VendorListVendor.vendor_list == vendor_list)
         ]
@@ -345,11 +349,11 @@ def lambda_handler(event, context):
             return {'statusCode': 400, 'body': json.dumps("Missing 'vendor-list' field")}
         return delete_vendor_list(account_id, vendor_list_name)
 
-    elif method == 'PUT':
-        # PUT /vendor-lists?vendor-list=mylist - replace all vendors
-        if not vendor_list_name or vendors is None:
-            return {'statusCode': 400, 'body': json.dumps("Missing 'vendor-list' or 'vendors' field")}
-        return replace_vendors_in_list(account_id, vendor_list_name, vendors)
+    # elif method == 'PUT':
+    #     # PUT /vendor-lists?vendor-list=mylist - replace all vendors
+    #     if not vendor_list_name or vendors is None:
+    #         return {'statusCode': 400, 'body': json.dumps("Missing 'vendor-list' or 'vendors' field")}
+    #     return replace_vendors_in_list(account_id, vendor_list_name, vendors)
 
     elif method == 'GET':
         if vendor_list_name:

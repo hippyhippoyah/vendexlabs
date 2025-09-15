@@ -37,9 +37,9 @@ resource "aws_iam_policy_attachment" "attach_ses_full_access" {
 }
 
 resource "aws_lambda_layer_version" "rss_layer" {
-  filename         = "../lambda_layersV1.zip"
+  filename         = "../lambda_layersV3.zip"
   layer_name       = "rss_layer"
-  compatible_runtimes = ["python3.9"]
+  compatible_runtimes = ["python3.13"]
 }
 
 # Archive the RSS Lambda source code
@@ -91,9 +91,16 @@ data "archive_file" "individual_subscription_lambda_zip" {
   output_path = "${path.module}/individual-subscription-lambda.zip"
 }
 
+# Archive the Vendor Assessment Tracking Lambda source code
+data "archive_file" "vendor_assessment_tracking_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../vendor_assessment_tracking_lambda"
+  output_path = "${path.module}/vendor-assessment-tracking-lambda.zip"
+}
+
 resource "aws_lambda_function" "lambda" {
   function_name    = "lambda-RSS-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "parser.lambda_handler"
   filename         = data.archive_file.rss_lambda_zip.output_path
@@ -119,7 +126,7 @@ resource "aws_lambda_function" "lambda" {
 
 resource "aws_lambda_function" "individual_subscription_lambda" {
   function_name    = "lambda-individual-subscription-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "individual_subscription_manager.lambda_handler"
   filename         = data.archive_file.individual_subscription_lambda_zip.output_path
@@ -143,7 +150,7 @@ resource "aws_lambda_function" "individual_subscription_lambda" {
 
 resource "aws_lambda_function" "vendor_info_lambda" {
   function_name    = "lambda-vendor-info-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "vendor_info.lambda_handler"
   filename         = data.archive_file.vendor_info_lambda_zip.output_path
@@ -174,7 +181,7 @@ resource "aws_lambda_function" "vendor_info_lambda" {
 
 resource "aws_lambda_function" "account_handler_lambda" {
   function_name    = "lambda-account-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "account_handler.lambda_handler"
   filename         = data.archive_file.account_handler_lambda_zip.output_path
@@ -198,7 +205,7 @@ resource "aws_lambda_function" "account_handler_lambda" {
 
 resource "aws_lambda_function" "user_handler_lambda" {
   function_name    = "lambda-user-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "user_handler.lambda_handler"
   filename         = data.archive_file.user_handler_lambda_zip.output_path
@@ -222,7 +229,7 @@ resource "aws_lambda_function" "user_handler_lambda" {
 
 resource "aws_lambda_function" "subscriber_handler_lambda" {
   function_name    = "lambda-subscriber-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "subscriber_handler.lambda_handler"
   filename         = data.archive_file.subscriber_handler_lambda_zip.output_path
@@ -246,11 +253,35 @@ resource "aws_lambda_function" "subscriber_handler_lambda" {
 
 resource "aws_lambda_function" "vendor_list_handler_lambda" {
   function_name    = "lambda-vendor-list-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "vendor_list_handler.lambda_handler"
   filename         = data.archive_file.vendor_list_handler_lambda_zip.output_path
   source_code_hash = data.archive_file.vendor_list_handler_lambda_zip.output_base64sha256
+  timeout          = 120
+  memory_size      = 1024
+  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  environment {
+    variables = {
+      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_USER = var.db_user
+      DB_PASS = var.db_pass
+      DB_NAME = "postgres"
+    }
+  }
+  vpc_config {
+    security_group_ids = [aws_security_group.lambda_sg.id]
+    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+  }
+}
+
+resource "aws_lambda_function" "vendor_assessment_tracking_lambda" {
+  function_name    = "lambda-vendor-assessment-tracking-handler"
+  runtime          = "python3.13"
+  role             = aws_iam_role.vl_lambda_role.arn
+  handler          = "vendor_assesment_tracking.lambda_handler"
+  filename         = data.archive_file.vendor_assessment_tracking_lambda_zip.output_path
+  source_code_hash = data.archive_file.vendor_assessment_tracking_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
   layers           = [aws_lambda_layer_version.rss_layer.arn]
