@@ -3,6 +3,7 @@ import logging
 from peewee import IntegrityError
 from config import db
 from models import Account, User, AccountUser, VendorList, Admin
+import psycopg2 ; print(psycopg2)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

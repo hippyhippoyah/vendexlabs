@@ -36,9 +36,9 @@ resource "aws_iam_policy_attachment" "attach_ses_full_access" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSESFullAccess"
 }
 
-resource "aws_lambda_layer_version" "rss_layer" {
-  filename         = "../lambda_layersV3.zip"
-  layer_name       = "rss_layer"
+resource "aws_lambda_layer_version" "db_lambda_layer" {
+  filename         = "../db_lambda_layersV1.zip"
+  layer_name       = "db_lambda_layer"
   compatible_runtimes = ["python3.13"]
 }
 
@@ -107,7 +107,7 @@ resource "aws_lambda_function" "lambda" {
   source_code_hash = data.archive_file.rss_lambda_zip.output_base64sha256
   timeout          = 240
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
@@ -133,7 +133,7 @@ resource "aws_lambda_function" "individual_subscription_lambda" {
   source_code_hash = data.archive_file.individual_subscription_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
@@ -157,7 +157,7 @@ resource "aws_lambda_function" "vendor_info_lambda" {
   source_code_hash = data.archive_file.vendor_info_lambda_zip.output_base64sha256
   timeout          = 450
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
@@ -188,7 +188,7 @@ resource "aws_lambda_function" "account_handler_lambda" {
   source_code_hash = data.archive_file.account_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST = aws_rds_cluster.ven_aurora.endpoint
@@ -212,7 +212,7 @@ resource "aws_lambda_function" "user_handler_lambda" {
   source_code_hash = data.archive_file.user_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST = aws_rds_cluster.ven_aurora.endpoint
@@ -236,7 +236,7 @@ resource "aws_lambda_function" "subscriber_handler_lambda" {
   source_code_hash = data.archive_file.subscriber_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST = aws_rds_cluster.ven_aurora.endpoint
@@ -260,7 +260,7 @@ resource "aws_lambda_function" "vendor_list_handler_lambda" {
   source_code_hash = data.archive_file.vendor_list_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST = aws_rds_cluster.ven_aurora.endpoint
@@ -284,7 +284,7 @@ resource "aws_lambda_function" "vendor_assessment_tracking_lambda" {
   source_code_hash = data.archive_file.vendor_assessment_tracking_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
       DB_HOST = aws_rds_cluster.ven_aurora.endpoint
