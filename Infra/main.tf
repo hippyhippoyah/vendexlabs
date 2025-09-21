@@ -22,7 +22,18 @@ terraform {
 #   cidr_block        = "10.0.1.0/24"
 #   availability_zone = "us-east-1a"
 # }
+# resource "aws_subnet" "subnet1" {
+#   vpc_id            = aws_vpc.main.id
+#   cidr_block        = "10.0.1.0/24"
+#   availability_zone = "us-east-1a"
+# }
 
+# resource "aws_subnet" "subnet2" {
+#   vpc_id            = aws_vpc.main.id
+#   cidr_block        = "10.0.2.0/24"
+#   availability_zone = "us-east-1b"
+#   map_public_ip_on_launch = true
+# }
 # resource "aws_subnet" "subnet2" {
 #   vpc_id            = aws_vpc.main.id
 #   cidr_block        = "10.0.2.0/24"
@@ -33,7 +44,13 @@ terraform {
 # data "aws_subnet" "subnet1" {
 #   id = aws_subnet.subnet1.id
 # }
+# data "aws_subnet" "subnet1" {
+#   id = aws_subnet.subnet1.id
+# }
 
+# data "aws_subnet" "subnet2" {
+#   id = aws_subnet.subnet2.id
+# }
 # data "aws_subnet" "subnet2" {
 #   id = aws_subnet.subnet2.id
 # }
@@ -41,11 +58,21 @@ terraform {
 # resource "aws_internet_gateway" "igw" {
 #   vpc_id = aws_vpc.main.id
 # }
+# resource "aws_internet_gateway" "igw" {
+#   vpc_id = aws_vpc.main.id
+# }
 
 
 # resource "aws_route_table" "public_rt" {
 #   vpc_id = aws_vpc.main.id
+# resource "aws_route_table" "public_rt" {
+#   vpc_id = aws_vpc.main.id
 
+#   route {
+#     cidr_block = "0.0.0.0/0"
+#     gateway_id = aws_internet_gateway.igw.id
+#   }
+# }
 #   route {
 #     cidr_block = "0.0.0.0/0"
 #     gateway_id = aws_internet_gateway.igw.id
@@ -56,12 +83,26 @@ terraform {
 #   subnet_id      = aws_subnet.subnet2.id
 #   route_table_id = aws_route_table.public_rt.id
 # }
+# resource "aws_route_table_association" "subnet2_association" {
+#   subnet_id      = aws_subnet.subnet2.id
+#   route_table_id = aws_route_table.public_rt.id
+# }
 
 # resource "aws_security_group" "lambda_sg" {
 #   vpc_id      = aws_vpc.main.id
 #   name        = "lambda-security-group"
 #   description = "Security group for Lambda"
+# resource "aws_security_group" "lambda_sg" {
+#   vpc_id      = aws_vpc.main.id
+#   name        = "lambda-security-group"
+#   description = "Security group for Lambda"
 
+#   ingress {
+#     from_port   = 5432
+#     to_port     = 5432
+#     protocol    = "tcp"
+#     cidr_blocks = ["10.0.0.0/16"]  # Allow traffic from the VPC
+#   }
 #   ingress {
 #     from_port   = 5432
 #     to_port     = 5432
@@ -76,12 +117,29 @@ terraform {
 #     cidr_blocks = ["0.0.0.0/0"]
 #   }
 # }
+#   egress {
+#     from_port   = 0
+#     to_port     = 0
+#     protocol    = "-1"
+#     cidr_blocks = ["0.0.0.0/0"]
+#   }
+# }
 
 # resource "aws_security_group" "aurora_sg" {
 #   vpc_id      = aws_vpc.main.id
 #   name        = "aurora-security-group"
 #   description = "Allow Lambda access to Aurora"
+# resource "aws_security_group" "aurora_sg" {
+#   vpc_id      = aws_vpc.main.id
+#   name        = "aurora-security-group"
+#   description = "Allow Lambda access to Aurora"
 
+#   ingress {
+#     from_port       = 5432
+#     to_port         = 5432
+#     protocol        = "tcp"
+#     cidr_blocks     = ["10.0.0.0/16"]  # Allow traffic from the VPC
+#   }
 #   ingress {
 #     from_port       = 5432
 #     to_port         = 5432
@@ -96,7 +154,18 @@ terraform {
 #     cidr_blocks = ["0.0.0.0/0"]
 #   }
 # }
+#   egress {
+#     from_port   = 0
+#     to_port     = 0
+#     protocol    = "-1"
+#     cidr_blocks = ["0.0.0.0/0"]
+#   }
+# }
 
+# resource "aws_db_subnet_group" "aurora_subnet_group" {
+#   name       = "aurora-subnet-group"
+#   subnet_ids = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+# }
 # resource "aws_db_subnet_group" "aurora_subnet_group" {
 #   name       = "aurora-subnet-group"
 #   subnet_ids = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
@@ -120,7 +189,32 @@ terraform {
 #     max_capacity = 4
 #   }
 # }
+# resource "aws_rds_cluster" "ven_aurora" {
+#   cluster_identifier      = "vendors-aurora"
+#   engine                  = "aurora-postgresql"
+#   engine_mode             = "provisioned"
+#   engine_version          = "13.18"
+#   database_name           = "postgres"
+#   master_username         = var.db_user
+#   master_password         = var.db_pass
+#   vpc_security_group_ids  = [aws_security_group.aurora_sg.id]
+#   db_subnet_group_name    = aws_db_subnet_group.aurora_subnet_group.name
+#   storage_encrypted       = true
+#   skip_final_snapshot     = true
 
+#   serverlessv2_scaling_configuration {
+#     min_capacity = 0.5 
+#     max_capacity = 4
+#   }
+# }
+
+# resource "aws_rds_cluster_instance" "aurora_instance" {
+#   cluster_identifier = aws_rds_cluster.ven_aurora.id
+#   instance_class     = "db.serverless"
+#   engine             = aws_rds_cluster.ven_aurora.engine
+#   engine_version     = aws_rds_cluster.ven_aurora.engine_version
+#   publicly_accessible = false
+# }
 # resource "aws_rds_cluster_instance" "aurora_instance" {
 #   cluster_identifier = aws_rds_cluster.ven_aurora.id
 #   instance_class     = "db.serverless"
@@ -177,3 +271,6 @@ resource "aws_db_instance" "ven_rds" {
   storage_encrypted       = false
   multi_az                = false
 }
+# output "aurora_endpoint" {
+#   value = aws_rds_cluster.ven_aurora.endpoint
+# }

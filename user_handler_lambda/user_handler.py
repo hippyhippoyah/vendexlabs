@@ -15,6 +15,21 @@ def get_user_email(event):
         return None
     return claims.get('email')
 
+def is_admin_claim(event):
+    claims = None
+    authorizer = event['requestContext'].get('authorizer', {})
+    if 'jwt' in authorizer and 'claims' in authorizer['jwt']:
+        claims = authorizer['jwt']['claims']
+    elif 'claims' in authorizer:
+        claims = authorizer['claims']
+    else:
+        return False
+    groups = claims.get('cognito:groups', [])
+    print(f"User groups from claims: {groups}")
+    if isinstance(groups, str):
+        groups = [g.strip() for g in groups.split(',')]
+    return any('Admins' in g for g in groups)
+
 def is_user_in_account(account_id, email):
     try:
         # Convert account_id string to UUID
@@ -192,7 +207,8 @@ def lambda_handler(event, context):
     try:
         method = event['requestContext']['http']['method'].upper()
         email = get_user_email(event)
-        if not email:
+        admin = is_admin_claim(event)
+        if not email and not admin:
             return {
                 'statusCode': 401,
                 'body': json.dumps("Unauthorized: No user email found")
@@ -216,7 +232,8 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'body': json.dumps("Missing required field: 'account-id'")
             }
-        if not is_user_in_account(account_id, email):
+        # Only check if user is in account if not admin
+        if not admin and not is_user_in_account(account_id, email):
             return {
                 'statusCode': 403,
                 'body': json.dumps(f"Forbidden: User '{email}' does not have access to account '{account_id}'")

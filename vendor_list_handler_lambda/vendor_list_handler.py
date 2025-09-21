@@ -183,7 +183,7 @@ def remove_vendors_from_list(account_id, vendor_list_name, vendors):
     finally:
         db.close()
 
-def remove_vendors_from_list(account_id, vendor_list_id, vendors):
+def save_vendors_to_list(account_id, vendor_list_id, vendors):
     db.connect(reuse_if_open=True)
     try:
         # Convert account_id string to UUID
@@ -204,7 +204,7 @@ def remove_vendors_from_list(account_id, vendor_list_id, vendors):
             
         return {
             'statusCode': 200,
-            'body': json.dumps({'vendors_replaced': added})
+            'body': json.dumps({'vendors_saved': added})
         }
     except Account.DoesNotExist:
         return {
@@ -328,16 +328,11 @@ def lambda_handler(event, context):
         return {'statusCode': 403, 'body': json.dumps("Forbidden: Not authorized for this account")}
 
     if method == 'POST':
-        if operation == 'add-vendors':
-            # POST /vendor-lists?operation=add-vendors&vendor-list=mylist
-            if not (vendor_list_name and vendors):
+        if operation == 'save-vendors':
+            # POST /vendor-lists?operation=save-vendors&vendor-list=mylist
+            if not (vendor_list_name and vendors is not None):
                 return {'statusCode': 400, 'body': json.dumps("Missing 'vendor-list' or 'vendors' field")}
-            return add_vendors_to_list(account_id, vendor_list_name, vendors)
-        elif operation == 'remove-vendors':
-            # POST /vendor-lists?operation=remove-vendors&vendor-list=mylist  
-            if not (vendor_list_name and vendors):
-                return {'statusCode': 400, 'body': json.dumps("Missing 'vendor-list' or 'vendors' field")}
-            return remove_vendors_from_list(account_id, vendor_list_name, vendors)
+            return save_vendors_to_list(account_id, vendor_list_name, vendors)
         else:
             # Default POST behavior - create vendor list
             if not vendor_list_name:
@@ -348,12 +343,6 @@ def lambda_handler(event, context):
         if not vendor_list_name:
             return {'statusCode': 400, 'body': json.dumps("Missing 'vendor-list' field")}
         return delete_vendor_list(account_id, vendor_list_name)
-
-    # elif method == 'PUT':
-    #     # PUT /vendor-lists?vendor-list=mylist - replace all vendors
-    #     if not vendor_list_name or vendors is None:
-    #         return {'statusCode': 400, 'body': json.dumps("Missing 'vendor-list' or 'vendors' field")}
-    #     return replace_vendors_in_list(account_id, vendor_list_name, vendors)
 
     elif method == 'GET':
         if vendor_list_name:
