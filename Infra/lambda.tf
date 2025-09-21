@@ -110,7 +110,8 @@ resource "aws_lambda_function" "lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST     = aws_db_instance.ven_rds.endpoint
+      DB_PORT     = "5432"
       DB_USER     = var.db_user
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
@@ -119,8 +120,8 @@ resource "aws_lambda_function" "lambda" {
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
@@ -136,15 +137,16 @@ resource "aws_lambda_function" "individual_subscription_lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST     = aws_db_instance.ven_rds.endpoint
+      DB_PORT     = "5432"
       DB_USER     = var.db_user
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
@@ -160,7 +162,8 @@ resource "aws_lambda_function" "vendor_info_lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST     = aws_db_instance.ven_rds.endpoint
+      DB_PORT     = "5432"
       DB_USER     = var.db_user
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
@@ -174,8 +177,8 @@ resource "aws_lambda_function" "vendor_info_lambda" {
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
@@ -191,15 +194,16 @@ resource "aws_lambda_function" "account_handler_lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
@@ -215,15 +219,16 @@ resource "aws_lambda_function" "user_handler_lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
@@ -239,15 +244,16 @@ resource "aws_lambda_function" "subscriber_handler_lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
@@ -263,15 +269,16 @@ resource "aws_lambda_function" "vendor_list_handler_lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
@@ -287,41 +294,42 @@ resource "aws_lambda_function" "vendor_assessment_tracking_lambda" {
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
 # NAT Gateway and EIP for Lambda internet access
-resource "aws_eip" "nat_eip" {
-  domain = "vpc"
-}
+# resource "aws_eip" "nat_eip" {
+#   domain = "vpc"
+# }
 
-resource "aws_nat_gateway" "nat_gw" {
-  allocation_id = aws_eip.nat_eip.id
-  subnet_id     = aws_subnet.subnet2.id
-}
+# resource "aws_nat_gateway" "nat_gw" {
+#   allocation_id = aws_eip.nat_eip.id
+#   subnet_id     = aws_subnet.subnet2.id
+# }
 
-resource "aws_route_table" "private_rt" {
-  vpc_id = aws_vpc.main.id
+# resource "aws_route_table" "private_rt" {
+#   vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw.id
-  }
-}
+#   route {
+#     cidr_block     = "0.0.0.0/0"
+#     nat_gateway_id = aws_nat_gateway.nat_gw.id
+#   }
+# }
 
-resource "aws_route_table_association" "subnet1_association" {
-  subnet_id      = aws_subnet.subnet1.id
-  route_table_id = aws_route_table.private_rt.id
-}
+# resource "aws_route_table_association" "subnet1_association" {
+#   subnet_id      = aws_subnet.subnet1.id
+#   route_table_id = aws_route_table.private_rt.id
+# }
 
 
 # Frequency can be adjusted here
