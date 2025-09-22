@@ -48,7 +48,36 @@ subscription_version = "your_version"
 
 
 ## Versions
-1.0 Basic Individual User Subscription Handling
-1.1 Organization Model
+#### 1.0 
+   - Basic Subscription Handler to send Feeds
+#### 1.01 
+   - Infra Setup with NAT Gateway, Private VPC and subnet, and 2 Lambdas with API Gateway
+   - individual subscriptions management
+   - rss feed parsing
+#### 1.02 
+   - Frontend Vendex-labs client added to support the endpoints
+#### 1.03
+   - Bug Fixes with RSS feed parser and email sender
+
+#### 1.1
+   - Vendor Info Parser Basic with OpenAI and google search
+#### 1.2
+   - Add support for Org Management
+   - Account Manager
+   - Subscription Manager
+   - User Manager
+   - Subscription List Manager
+#### 1.21
+   - Refactor RSS parse to support new system
+#### 1.3
+   - Vendor Info upgrade with perplexity, and custom search
+#### 1.31
+   -Upgrade 3.9 to Python 3.13
+#### 1.4
+   - Descaled to use default VPC and t4.micro instead of Aurora and NAT. EST cost: $100m -> $20/m 
+
+#### 1.5
+   - Assesment Tracking Added (WIP)
 
 ## Future Improvements
+[google doc](https://docs.google.com/document/d/1bhuVU0c1opEizm29kJ56zAv7SG-uy6hAinnJpCYExks)
