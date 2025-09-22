@@ -45,3 +45,15 @@ variable "openai_api_url" {
   type        = string
   default     = "https://api.openai.com/v1/chat/completions"
 }
+
+variable "perplexity_api_key" {
+  description = "Perplexity AI API key"
+  type        = string
+  sensitive   = true
+}
+
+variable "perplexity_api_url" {
+  description = "Perplexity AI API URL"
+  type        = string
+  default     = "https://api.perplexity.ai/chat/completions"
+}

@@ -1,0 +1,1 @@
+NOW Handles Individual Subscriptions

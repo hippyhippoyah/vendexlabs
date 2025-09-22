@@ -11,7 +11,7 @@ from cleanco import basename
 import peewee
 
 from sender import send_email_ses
-from models import db, RSSFeed, Subscription
+from models import db, RSSFeed, Vendor, VendorList, VendorListVendor, Subscriber, VendorListSubscriber
 
 API_URL = "https://api.openai.com/v1/chat/completions"
 API_KEY = os.getenv("API_KEY")
@@ -111,6 +111,7 @@ def create_entries(feeds, last_published):
         for entry in feed.entries:
             article_text = fetch_article_text(entry.link)
             if not article_text:
+                logging.info(f"Skipping article with no text: {entry.link}")
                 continue
             entry_published = dateutil.parser.parse(entry.published) if hasattr(entry, 'published') else None
             if not entry_published or entry_published <= last_published:
@@ -176,17 +177,26 @@ def insert_entries(entries):
         except peewee.IntegrityError:
             continue
 
-def send_notifications(entries):
     emails_count = 0
     for entry in entries:
-        vendor = entry[1] or "Unknown"
-        send_email_ses(["vendexlabs+notification@gmail.com"], entry)
-        results = Subscription.select(Subscription.emails).where(Subscription.vendor == vendor)
-        emails = [row.emails for row in results]
-        if emails:
-            emails_count += len(emails)
-            logging.info(f"Sending email to: {emails}")
-            for email in emails:
+        vendor_name = entry[1] or "Unknown"
+        try:
+            vendor_obj = Vendor.get_or_none(Vendor.name == vendor_name)
+        except Exception as e:
+            logging.warning(f"Vendor lookup failed for {vendor_name}: {e}")
+            vendor_obj = None
+        emails = set()
+        if vendor_obj:
+            vendor_list_ids = VendorListVendor.select(VendorListVendor.vendor_list).where(VendorListVendor.vendor == vendor_obj)
+            subscriber_query = Subscriber.select(Subscriber.email).join(VendorListSubscriber, on=(Subscriber.id == VendorListSubscriber.subscriber)).where(VendorListSubscriber.vendor_list.in_(vendor_list_ids), Subscriber.verified == True)
+            emails.update([subscriber.email for subscriber in subscriber_query if subscriber.email])
+        emails.add("vendexlabs+notification@gmail.com")
+        # Deduplicate emails before sending
+        unique_emails = set(emails)
+        if unique_emails:
+            emails_count += len(unique_emails)
+            logging.info(f"Sending email to: {list(unique_emails)}")
+            for email in unique_emails:
                 send_email_ses([email], entry)
     return emails_count
 
@@ -202,8 +212,7 @@ def lambda_handler(event, context):
             return {"statusCode": 200, "body": "No new entries found."}
         new_entries = dedupe_entries(new_entries)
         logging.info("Inserting entries...")
-        insert_entries(new_entries)
-        emails_count = send_notifications(new_entries)
+        emails_count = insert_entries(new_entries)
         db.close()
         return {"statusCode": 200, "body": f"Inserted {len(new_entries)} new entries. Sent {emails_count} emails."}
     except Exception as e:

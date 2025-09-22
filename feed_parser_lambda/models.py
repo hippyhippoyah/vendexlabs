@@ -2,16 +2,22 @@ import os
 import peewee
 
 DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", "5432")
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
+
+if DB_HOST and ':' in DB_HOST:
+    DB_HOST, DB_PORT = DB_HOST.split(':', 1)
 
 db = peewee.PostgresqlDatabase(
     DB_NAME,
     user=DB_USER,
     password=DB_PASS,
-    host=DB_HOST
+    host=DB_HOST,
+    port=int(DB_PORT)
 )
+
 
 class BaseModel(peewee.Model):
     class Meta:
@@ -35,9 +41,57 @@ class RSSFeed(BaseModel):
     class Meta:
         table_name = 'rss_feeds'
 
-class Subscription(BaseModel):
-    vendor = peewee.TextField()
-    emails = peewee.TextField()
+
+# --- Vendor List Models for Subscriber System ---
+import uuid
+
+class Account(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
+    name = peewee.TextField(unique=True)
+    active = peewee.BooleanField(default=True)
 
     class Meta:
-        table_name = 'subscriptions'
+        table_name = 'accounts'
+
+
+# Subscriber model for email notifications
+class Subscriber(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
+    email = peewee.TextField(unique=True)
+    verified = peewee.BooleanField(default=False)
+
+    class Meta:
+        table_name = 'subscribers'
+
+class Vendor(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
+    name = peewee.TextField(unique=True)
+
+    class Meta:
+        table_name = 'vendors'
+
+class VendorList(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
+    name = peewee.TextField()
+    account = peewee.ForeignKeyField(Account, backref='vendor_lists', null=True)
+    # user = peewee.ForeignKeyField(User, backref='personal_vendor_lists', null=True)  # Deprecated, use subscribers
+
+    class Meta:
+        table_name = 'vendor_lists'
+
+# Link table for VendorList and Subscriber
+class VendorListSubscriber(BaseModel):
+    vendor_list = peewee.ForeignKeyField(VendorList, backref='subscribers')
+    subscriber = peewee.ForeignKeyField(Subscriber, backref='lists')
+
+    class Meta:
+        table_name = 'vendor_list_subscribers'
+        primary_key = peewee.CompositeKey('vendor_list', 'subscriber')
+
+class VendorListVendor(BaseModel):
+    vendor_list = peewee.ForeignKeyField(VendorList, backref="vendors")
+    vendor = peewee.ForeignKeyField(Vendor, backref="lists")
+
+    class Meta:
+        table_name = 'vendor_list_vendors'
+        primary_key = peewee.CompositeKey('vendor_list', 'vendor')

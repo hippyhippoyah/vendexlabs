@@ -36,10 +36,10 @@ resource "aws_iam_policy_attachment" "attach_ses_full_access" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSESFullAccess"
 }
 
-resource "aws_lambda_layer_version" "rss_layer" {
-  filename         = "../lambda_layersV1.zip"
-  layer_name       = "rss_layer"
-  compatible_runtimes = ["python3.9"]
+resource "aws_lambda_layer_version" "db_lambda_layer" {
+  filename         = "../db_lambda_layersV1.zip"
+  layer_name       = "db_lambda_layer"
+  compatible_runtimes = ["python3.13"]
 }
 
 # Archive the RSS Lambda source code
@@ -47,13 +47,6 @@ data "archive_file" "rss_lambda_zip" {
   type        = "zip"
   source_dir  = "../feed_parser_lambda"
   output_path = "${path.module}/RSS-lambda.zip"
-}
-
-# Archive the Subscription Lambda source code
-data "archive_file" "subscription_lambda_zip" {
-  type        = "zip"
-  source_dir  = "../subscription_handler_lambda"
-  output_path = "${path.module}/Subscription-lambda.zip"
 }
 
 # Archive the Vendor Info Lambda source code
@@ -91,19 +84,34 @@ data "archive_file" "vendor_list_handler_lambda_zip" {
   output_path = "${path.module}/vendor-list-handler-lambda.zip"
 }
 
+# Archive the Individual Subscription Lambda source code
+data "archive_file" "individual_subscription_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../individual_subscription_handler"
+  output_path = "${path.module}/individual-subscription-lambda.zip"
+}
+
+# Archive the Vendor Assessment Tracking Lambda source code
+data "archive_file" "vendor_assessment_tracking_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../vendor_assessment_tracking_lambda"
+  output_path = "${path.module}/vendor-assessment-tracking-lambda.zip"
+}
+
 resource "aws_lambda_function" "lambda" {
   function_name    = "lambda-RSS-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "parser.lambda_handler"
   filename         = data.archive_file.rss_lambda_zip.output_path
   source_code_hash = data.archive_file.rss_lambda_zip.output_base64sha256
   timeout          = 240
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST     = aws_db_instance.ven_rds.endpoint
+      DB_PORT     = "5432"
       DB_USER     = var.db_user
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
@@ -112,48 +120,50 @@ resource "aws_lambda_function" "lambda" {
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
-resource "aws_lambda_function" "subscribe_lambda" {
-  function_name    = "lambda-subscribe-handler"
-  runtime          = "python3.9"
+resource "aws_lambda_function" "individual_subscription_lambda" {
+  function_name    = "lambda-individual-subscription-handler"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
-  handler          = "subscription_manager.lambda_handler"
-  filename         = data.archive_file.subscription_lambda_zip.output_path
-  source_code_hash = data.archive_file.subscription_lambda_zip.output_base64sha256
+  handler          = "individual_subscription_manager.lambda_handler"
+  filename         = data.archive_file.individual_subscription_lambda_zip.output_path
+  source_code_hash = data.archive_file.individual_subscription_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST     = aws_db_instance.ven_rds.endpoint
+      DB_PORT     = "5432"
       DB_USER     = var.db_user
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
 resource "aws_lambda_function" "vendor_info_lambda" {
   function_name    = "lambda-vendor-info-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "vendor_info.lambda_handler"
   filename         = data.archive_file.vendor_info_lambda_zip.output_path
   source_code_hash = data.archive_file.vendor_info_lambda_zip.output_base64sha256
   timeout          = 450
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST     = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST     = aws_db_instance.ven_rds.endpoint
+      DB_PORT     = "5432"
       DB_USER     = var.db_user
       DB_PASS     = var.db_pass
       DB_NAME     = "postgres"
@@ -162,133 +172,164 @@ resource "aws_lambda_function" "vendor_info_lambda" {
       GOOGLE_CSE_ID  = var.google_cse_id
       GOOGLE_SEARCH_URL = var.google_search_url
       OPENAI_API_URL = var.openai_api_url
+      PERPLEXITY_API_KEY = var.perplexity_api_key
+      PERPLEXITY_API_URL = var.perplexity_api_url
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
 resource "aws_lambda_function" "account_handler_lambda" {
   function_name    = "lambda-account-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "account_handler.lambda_handler"
   filename         = data.archive_file.account_handler_lambda_zip.output_path
   source_code_hash = data.archive_file.account_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
 resource "aws_lambda_function" "user_handler_lambda" {
   function_name    = "lambda-user-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "user_handler.lambda_handler"
   filename         = data.archive_file.user_handler_lambda_zip.output_path
   source_code_hash = data.archive_file.user_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
 resource "aws_lambda_function" "subscriber_handler_lambda" {
   function_name    = "lambda-subscriber-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "subscriber_handler.lambda_handler"
   filename         = data.archive_file.subscriber_handler_lambda_zip.output_path
   source_code_hash = data.archive_file.subscriber_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
 resource "aws_lambda_function" "vendor_list_handler_lambda" {
   function_name    = "lambda-vendor-list-handler"
-  runtime          = "python3.9"
+  runtime          = "python3.13"
   role             = aws_iam_role.vl_lambda_role.arn
   handler          = "vendor_list_handler.lambda_handler"
   filename         = data.archive_file.vendor_list_handler_lambda_zip.output_path
   source_code_hash = data.archive_file.vendor_list_handler_lambda_zip.output_base64sha256
   timeout          = 120
   memory_size      = 1024
-  layers           = [aws_lambda_layer_version.rss_layer.arn]
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
     variables = {
-      DB_HOST = aws_rds_cluster.ven_aurora.endpoint
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
       DB_USER = var.db_user
       DB_PASS = var.db_pass
       DB_NAME = "postgres"
     }
   }
   vpc_config {
-    security_group_ids = [aws_security_group.lambda_sg.id]
-    subnet_ids         = [data.aws_subnet.subnet1.id, data.aws_subnet.subnet2.id]
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
+  }
+}
+
+resource "aws_lambda_function" "vendor_assessment_tracking_lambda" {
+  function_name    = "lambda-vendor-assessment-tracking-handler"
+  runtime          = "python3.13"
+  role             = aws_iam_role.vl_lambda_role.arn
+  handler          = "vendor_assesment_tracking.lambda_handler"
+  filename         = data.archive_file.vendor_assessment_tracking_lambda_zip.output_path
+  source_code_hash = data.archive_file.vendor_assessment_tracking_lambda_zip.output_base64sha256
+  timeout          = 120
+  memory_size      = 1024
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
+  environment {
+    variables = {
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
+      DB_USER = var.db_user
+      DB_PASS = var.db_pass
+      DB_NAME = "postgres"
+    }
+  }
+  vpc_config {
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
   }
 }
 
 # NAT Gateway and EIP for Lambda internet access
-resource "aws_eip" "nat_eip" {
-  domain = "vpc"
-}
+# resource "aws_eip" "nat_eip" {
+#   domain = "vpc"
+# }
 
-resource "aws_nat_gateway" "nat_gw" {
-  allocation_id = aws_eip.nat_eip.id
-  subnet_id     = aws_subnet.subnet2.id
-}
+# resource "aws_nat_gateway" "nat_gw" {
+#   allocation_id = aws_eip.nat_eip.id
+#   subnet_id     = aws_subnet.subnet2.id
+# }
 
-resource "aws_route_table" "private_rt" {
-  vpc_id = aws_vpc.main.id
+# resource "aws_route_table" "private_rt" {
+#   vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw.id
-  }
-}
+#   route {
+#     cidr_block     = "0.0.0.0/0"
+#     nat_gateway_id = aws_nat_gateway.nat_gw.id
+#   }
+# }
 
-resource "aws_route_table_association" "subnet1_association" {
-  subnet_id      = aws_subnet.subnet1.id
-  route_table_id = aws_route_table.private_rt.id
-}
+# resource "aws_route_table_association" "subnet1_association" {
+#   subnet_id      = aws_subnet.subnet1.id
+#   route_table_id = aws_route_table.private_rt.id
+# }
 
 
 # Frequency can be adjusted here

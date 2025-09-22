@@ -53,3 +53,16 @@ class VendorListVendor(BaseModel):
     class Meta:
         table_name = 'vendor_list_vendors'
         primary_key = CompositeKey('vendor_list', 'vendor')
+
+class VendorAssessment(BaseModel):
+    id = UUIDField(primary_key=True, default=uuid.uuid4)
+    vendor_list = ForeignKeyField(VendorList, backref='assessments')
+    sponsor_business_org = TextField()
+    sponsor_contact = TextField()
+    compliance_approval_status = TextField()
+    compliance_comment = TextField(null=True)
+    compliance_contact = TextField()
+    compliance_assessment_date = DateField(null=True)
+
+    class Meta:
+        table_name = 'vendor_assessments'

@@ -1,18 +1,18 @@
 import json
-import os
-import re
 import requests
-from bs4 import BeautifulSoup
+import time
+import os
 from datetime import datetime, timezone
-from models import VendorInfo
-
 
 GOOGLE_SEARCH_URL = os.getenv("GOOGLE_SEARCH_URL", "https://www.googleapis.com/customsearch/v1")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
-API_KEY = os.getenv("API_KEY")
-API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+PERPLEXITY_API_URL = os.getenv("PERPLEXITY_API_URL", "https://api.perplexity.ai/chat/completions")
+print("Using Perplexity API KEY:", PERPLEXITY_API_KEY)
+
+total_tokens_used = 0
 
 
 def google_custom_search(query, search_type=None, **kwargs):
@@ -52,51 +52,54 @@ def google_custom_image_search(query, **kwargs):
     return ""
 
 def search_official_website(vendor_name):
-    # Use Google Custom Search to find the official website
     query = f"{vendor_name} official website"
     return google_custom_search(query)
 
-def llm_json_response(prompt):
-    """
-    Send a prompt to the LLM and return the parsed JSON response.
-    """
+def perplexity_json_response(prompt, model="sonar", response_format=None):
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json"
     }
-    system_prompt = (
-        "You must respond in JSON format only. Do not include any other text or explanations."
-        " Your response must use only real, verified information from official or reputable sources."
-        " If a value does not exist, use an empty string or empty array as appropriate."
-    )
-    data = {
-        "model": "gpt-4o-mini",
+    payload = {
+        "model": model,
         "messages": [
-            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
-        ]
+        ],
+        "max_tokens": 2000,
+        "top_p": 0.5,
+        "web_search_options": {
+            "search_context_size": "medium"
+        }
     }
+    if response_format:
+        payload["response_format"] = response_format
     try:
-        response = requests.post(API_URL, headers=headers, json=data)
+        response = requests.post(PERPLEXITY_API_URL, json=payload, headers=headers)
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print("Response Content:", response.text)
         raise
-    content = response.json()["choices"][0]["message"]["content"]
+    resp_json = response.json()
+    if 'usage' in resp_json:
+        usage = resp_json['usage']
+        tokens_used = usage.get('total_tokens', 0)
+        global total_tokens_used
+        total_tokens_used += tokens_used
+    import re
     try:
-        # Use regex to extract the first JSON object or array from the response
-        match = re.search(r'(\{.*\}|\[.*\])', content, re.DOTALL)
-        if match:
-            json_str = match.group(1)
-            return json.loads(json_str)
-        else:
-            # Fallback to previous logic
-            json_start = content.find('{')
-            if json_start != -1:
-                content = content[json_start:]
-            return json.loads(content)
-    except Exception as e:
-        print(f"Failed to parse JSON from model: {e}\nRaw content: {content}")
+        choices = resp_json.get("choices", [])
+        # Optionally print search results for debugging
+        # print(json.dumps(resp_json.get("search_results", []), indent=2))
+        if choices:
+            content = choices[0].get("message", {}).get("content", "")
+            if content:
+                # Remove bracketed references like [1][3][5]
+                content_clean = re.sub(r"\s*\[\d+\]", "", content)
+                try:
+                    return json.loads(content_clean)
+                except json.JSONDecodeError:
+                    return None
+        return None
+    except (KeyError, IndexError):
         return None
 
 def get_vendor_logo(vendor_name, website_url=None):
@@ -106,158 +109,229 @@ def get_vendor_logo(vendor_name, website_url=None):
         logo_url = google_custom_search(f"{website_url} logo", search_type="image")
     return logo_url
 
-def scrape_website_for_fields(website_url, vendor_name=None):
-    """
-    Use Google Search API to find relevant URLs (privacy policy, tos, contact, etc.)
-    and LLM to extract structured info from the website context.
-    """
-    # Use Google Search to find privacy policy and tos URLs
-    privacy_policy_url = google_custom_search(f"{website_url} privacy policy") or f"{website_url}/privacy"
-    tos_url = google_custom_search(f"{website_url} terms of service") or f"{website_url}/tos"
-    contact_url = google_custom_search(f"{website_url} contact") or f"{website_url}/contact"
-
-    logo_url = get_vendor_logo(vendor_name or website_url, website_url)
-
-    # Compose LLM prompt
-    prompt = (
-        f"Given the official website {website_url}, privacy policy URL {privacy_policy_url}, "
-        f"terms of service URL {tos_url}, and contact page {contact_url}, "
-        "extract the following fields as JSON:\n"
-        "{"
-        "\"logo\": (URL to the company's logo), "
-        "\"contact_email\": (official contact email), "
-        "\"headquarters_location\": (company headquarters location), "
-        "\"privacy_policy_url\": (privacy policy URL), "
-        "\"tos_url\": (terms of service URL)"
-        "}\n"
-        "Use only real, verifiable information. If a value does not exist, use an empty string."
-    )
-    llm_result = llm_json_response(prompt)
-    if not llm_result:
-        llm_result = {
-            "logo": logo_url,
-            "contact_email": f"info@{website_url.split('//')[1]}",
-            "headquarters_location": "",
-            "privacy_policy_url": privacy_policy_url,
-            "tos_url": tos_url
-        }
-    else:
-        llm_result["logo"] = logo_url or llm_result.get("logo", "")
-    return llm_result
-
-def extract_fields_with_llm(privacy_policy_url, tos_url, website_url):
-    """
-    Fetch and parse privacy policy and ToS pages, then use LLM to extract fields.
-    """
-    def fetch_text(url):
-        try:
-            headers = {"User-Agent": "Mozilla/5.0"}
-            resp = requests.get(url, timeout=10, headers=headers)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-            text = soup.get_text(separator=" ", strip=True)
-            return text
-        except Exception as e:
-            print(f"Failed to fetch or parse {url}: {e}")
-            return ""
-
-    privacy_text = fetch_text(privacy_policy_url) if privacy_policy_url else ""
-    tos_text = fetch_text(tos_url) if tos_url else ""
-
-    prompt = (
-        f"Given the following information from the vendor's website ({website_url}):\n"
-        f"Privacy Policy:\n{privacy_text}\n\n"
-        f"Terms of Service:\n{tos_text}\n\n"
-        "Extract the following fields as a JSON object with the following types:\n"
-        "{\n"
-        "  \"data_collected\": array of strings,  // types of data collected (max 100)\n"
-        "  \"legal_compliance\": string,           // legal/compliance implications\n"
-        "  \"published_subprocessors\": array of strings, // list of subprocessors (max 100)\n"
-        "  \"s_and_c_cert\": array of strings,     // security and compliance certifications\n"
-        "  \"bus_type\": array of strings,         // business type\n"
-        "  \"alias\": array of strings,            // known aliases\n"
-        "  \"compliance_certifications\": array of strings, // compliance certifications\n"
-        "  \"risk_categories\": array of strings   // risk categories\n"
-        "}\n"
-        "Use only real, verifiable information. If a value does not exist, use an empty string for strings or an empty array for arrays."
-    )
-    llm_result = llm_json_response(prompt)
-    # Fallback if LLM fails
-    if not llm_result:
-        llm_result = {
-            "data_collected": [],
-            "legal_compliance": "",
-            "published_subprocessors": [],
-            "s_and_c_cert": [],
-            "bus_type": [],
-            "alias": [],
-            "compliance_certifications": [],
-            "risk_categories": [],
-            "date": datetime.now(tz=timezone.utc).date().isoformat()
-        }
-    elif isinstance(llm_result, dict):
-        llm_result["date"] = datetime.now(tz=timezone.utc).date().isoformat()
-    else:
-        pass
-    return llm_result
-
 def get_security_and_risk_data(website_url):
-    # Placeholder: Call third-party APIs for security_rating, risk_score, breach_history
     return {
         "security_rating": 10,
         "risk_score": 10,
-        "breach_history": []
+        "breach_history": [],
+        "risk_categories": ["data_processing", "third_party_sharing"]
     }
 
-def get_vendor_info_auto(vendor_name, update_all_fields=True):
-    if update_all_fields:
-        website_url = search_official_website(vendor_name)
-        scraped = scrape_website_for_fields(website_url, vendor_name=vendor_name)
-    else:
-        # Try to fetch existing info from DB
-        try:
-            obj = VendorInfo.select().where(VendorInfo.vendor == vendor_name).first()
-        except Exception as e:
-            print(f"Error fetching vendor from DB: {e}")
-            obj = None
-        if obj:
-            website_url = obj.website_url
-            scraped = {
-                "logo": obj.logo,
-                "contact_email": obj.contact_email,
-                "headquarters_location": obj.headquarters_location,
-                "privacy_policy_url": obj.privacy_policy_url,
-                "tos_url": obj.tos_url
-            }
-        else:
-            website_url = search_official_website(vendor_name)
-            scraped = scrape_website_for_fields(website_url, vendor_name=vendor_name)
-    llm_fields = extract_fields_with_llm(
-        scraped.get("privacy_policy_url"),
-        scraped.get("tos_url"),
-        website_url
+def gather_additional_vendor_info(vendor_name, website_url=None, model="sonar"):
+    prompt = (
+        f"For the company {vendor_name}, find the following information:\n"
+        f"Website URL context: {website_url or 'Not provided'}\n"
+        "- alias: Known alternative names or aliases for the company (list)\n"
+        "- privacy_policy_url: Direct URL to their privacy policy\n"
+        "- tos_url: Direct URL to their terms of service\n"
+        "- contact_email: Primary contact email address\n"
+        "- data_collected: Types of data they typically collect from users (list)\n"
+        "If URLs are not found, use a best guess. If information not available, use appropriate defaults."
     )
-    security_data = get_security_and_risk_data(website_url)
-    vendor_info = {
-        "vendor": vendor_name,
-        "website_url": website_url,
-        "logo": scraped.get("logo", None),
-        "contact_email": scraped.get("contact_email", None),
-        "headquarters_location": scraped.get("headquarters_location", None),
-        "privacy_policy_url": scraped.get("privacy_policy_url", None),
-        "tos_url": scraped.get("tos_url", None),
-        "data_collected": llm_fields.get("data_collected", None),
-        "legal_compliance": llm_fields.get("legal_compliance", None),
-        "published_subprocessors": llm_fields.get("published_subprocessors", None),
-        "s_and_c_cert": llm_fields.get("s_and_c_cert", None),
-        "bus_type": llm_fields.get("bus_type", None),
-        "alias": llm_fields.get("alias", None),
-        "compliance_certifications": llm_fields.get("compliance_certifications", None),
-        "risk_categories": llm_fields.get("risk_categories", None),
-        "date": llm_fields.get("date", datetime.now(tz=timezone.utc).date().isoformat()),
-        "security_rating": security_data.get("security_rating", None),
-        "risk_score": security_data.get("risk_score", None),
-        "breach_history": security_data.get("breach_history", None),
-        "last_reviewed": "2024-06-01T00:00:00Z"
+    
+    response_format = {
+        'type': 'json_schema',
+        'json_schema': {
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'alias': {'type': 'array', 'items': {'type': 'string'}},
+                    'privacy_policy_url': {'type': 'string'},
+                    'tos_url': {'type': 'string'},
+                    'contact_email': {'type': 'string'},
+                    'data_collected': {'type': 'array', 'items': {'type': 'string'}}
+                },
+                'required': ['alias', 'privacy_policy_url', 'tos_url', 'contact_email', 'data_collected']
+            }
+        }
     }
-    return vendor_info
+    
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
+def gather_basic_company_info(vendor_name, model="sonar"):
+    prompt = (
+        f"Given the company {vendor_name}, extract the following basic information:\n"
+        "- company_description: Brief description of what the company does\n"
+        "- business_type: Whether they serve 'B2B', 'B2C', or 'Government' customers\n"
+        "- founded_year: Year the company was founded (number or null if unknown)\n"
+        "- employee_count: Current number of employees (number or null if unknown)\n"
+        "- industry: Primary industry sector\n"
+        "- primary_product: Main product or service offering\n"
+        "- headquarters_location: City and country of headquarters\n"
+        "- website_url: Official company website URL\n\n"
+        "For employee_count, look for recent headcount information, LinkedIn employee estimates, "
+        "or company size data from business databases. If no specific number is available, use null.\n"
+        "Provide accurate factual data only. If information is not available, use null. DO NOT MAKE UP INFORMATION"
+    )
+    response_format = {
+        'type': 'json_schema',
+        'json_schema': {
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'company_description': {'type': 'string'},
+                    'business_type': {'type': 'string', 'enum': ['B2B', 'B2C', 'Government']},
+                    'founded_year': {'type': ['number', 'null']},
+                    'employee_count': {'type': ['number', 'null']},
+                    'industry': {'type': 'string'},
+                    'primary_product': {'type': 'string'},
+                    'headquarters_location': {'type': 'string'},
+                    'website_url': {'type': 'string'}
+                },
+                'required': ['company_description', 'business_type', 'founded_year', 'employee_count', 'industry', 'primary_product', 'headquarters_location', 'website_url']
+            }
+        }
+    }
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
+
+def gather_business_maturity_info(vendor_name, model="sonar"):
+    prompt = (
+        f"For the company {vendor_name}, provide business maturity information:\n"
+        "- company_type: 'Private' or 'Public'\n"
+        "- total_funding: Total funding raised in USD (use 0 if unknown)\n"
+        "- funding_round: Latest funding round (e.g., 'Series A', 'IPO', 'Bootstrap')\n"
+        "- has_enterprise_customers: Does the company serve enterprise clients?\n"
+        "- popularity_index: Rate popularity from 1-100 based on market presence\n"
+        "- revenue_estimate: Estimated annual revenue in USD (use 0 if unknown)\n"
+        "- customer_count_estimate: Estimated number of customers (use 0 if unknown)\n"
+        "Provide factual information where available, reasonable estimates otherwise."
+    )
+    
+    response_format = {
+        'type': 'json_schema',
+        'json_schema': {
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'company_type': {'type': 'string', 'enum': ['Private', 'Public']},
+                    'total_funding': {'type': 'number'},
+                    'funding_round': {'type': 'string'},
+                    'has_enterprise_customers': {'type': 'boolean'},
+                    'popularity_index': {'type': 'number', 'minimum': 1, 'maximum': 100},
+                    'revenue_estimate': {'type': 'number'},
+                    'customer_count_estimate': {'type': 'number'}
+                },
+                'required': ['company_type', 'total_funding', 'funding_round', 'has_enterprise_customers', 'popularity_index', 'revenue_estimate', 'customer_count_estimate']
+            }
+        }
+    }
+    
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
+
+def gather_security_compliance_info(vendor_name, model="sonar"):
+    prompt = (
+        f"For the company {vendor_name}, provide security and compliance information:\n"
+        "- compliance_certifications: List of security certifications (SOC2, ISO27001, etc.)\n"
+        "- published_subprocessors: List of known third-party processors/partners\n"
+        "Research their public security documentation and certifications."
+    )
+    
+    response_format = {
+        'type': 'json_schema',
+        'json_schema': {
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'compliance_certifications': {'type': 'array', 'items': {'type': 'string'}},
+                    'published_subprocessors': {'type': 'array', 'items': {'type': 'string'}}
+                },
+                'required': ['compliance_certifications', 'published_subprocessors']
+            }
+        }
+    }
+    
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
+
+def gather_privacy_controls_info(vendor_name, model="sonar"):
+    prompt = (
+        f"For the company {vendor_name}, provide data privacy and handling information:\n"
+        "- shared_data_description: How they share data with third parties\n"
+        "- ml_training_data_description: How they use data for ML/AI training\n"
+        "- supports_data_subject_requests: Do they support GDPR data subject requests?\n"
+        "- gdpr_compliant: Are they GDPR compliant?\n"
+        "- data_returned_after_termination: Do they return data after contract termination?\n"
+        "- data_physical_location: Where is data physically stored?\n"
+        "Base answers on their privacy policy and public documentation."
+    )
+    
+    response_format = {
+        'type': 'json_schema',
+        'json_schema': {
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'shared_data_description': {'type': 'string'},
+                    'ml_training_data_description': {'type': 'string'},
+                    'supports_data_subject_requests': {'type': 'boolean'},
+                    'gdpr_compliant': {'type': 'boolean'},
+                    'data_returned_after_termination': {'type': 'boolean'},
+                    'data_physical_location': {'type': 'string'}
+                },
+                'required': ['shared_data_description', 'ml_training_data_description', 'supports_data_subject_requests', 'gdpr_compliant', 'data_returned_after_termination', 'data_physical_location']
+            }
+        }
+    }
+    
+    return perplexity_json_response(prompt, model=model, response_format=response_format)
+
+def gather_vendor_data(vendor_name, website_url=None, model="sonar"):
+    result = {
+        'vendors': {
+            'vendor': vendor_name,
+            'date': datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+            'last_reviewed': datetime.now(timezone.utc).isoformat()
+        },
+        'vendor_security': {},
+        'privacy_controls': {},
+        'business_maturity': {}
+    }
+    
+    basic_info = gather_basic_company_info(vendor_name, model=model)
+    if basic_info:
+        result['vendors'].update(basic_info)
+        if not website_url:
+            website_url = basic_info.get('website_url', '')
+    else:
+        print("  - WARNING: Failed to gather basic company info")
+    
+    maturity_info = gather_business_maturity_info(vendor_name, model=model)
+    if maturity_info:
+        result['vendors']['customer_count_estimate'] = maturity_info.pop('customer_count_estimate', 0)
+        result['business_maturity'] = maturity_info
+    else:
+        print("  - WARNING: Failed to gather business maturity info")
+    
+    security_info = gather_security_compliance_info(vendor_name, model=model)
+    if security_info:
+        result['vendor_security'] = security_info
+    else:
+        print("  - WARNING: Failed to gather security compliance info")
+    
+    privacy_info = gather_privacy_controls_info(vendor_name, model=model)
+    if privacy_info:
+        result['privacy_controls'] = privacy_info
+    else:
+        print("  - WARNING: Failed to gather privacy controls info")
+    
+    time.sleep(2)
+    
+    additional_info = gather_additional_vendor_info(vendor_name, website_url, model=model)
+    if additional_info:
+        result['vendors'].update(additional_info)
+    else:
+        print("  - WARNING: Failed to gather additional vendor info")
+    
+    result['vendors']['logo'] = get_vendor_logo(vendor_name, website_url)
+    
+    security_risk = get_security_and_risk_data(website_url)
+    result['vendors'].update(security_risk)
+    
+    current_time = datetime.now(timezone.utc).isoformat()
+    result['vendor_security']['created_at'] = current_time
+    result['vendor_security']['updated_at'] = current_time
+    result['privacy_controls']['created_at'] = current_time
+    result['privacy_controls']['updated_at'] = current_time
+    result['business_maturity']['created_at'] = current_time
+    result['business_maturity']['updated_at'] = current_time
+    
+    print(f"  - Total tokens used in this session: {total_tokens_used}")
+    return result

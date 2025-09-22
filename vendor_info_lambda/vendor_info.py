@@ -1,262 +1,237 @@
 import json
 from cleanco import basename
 from config import db
-from models import VendorInfo, RSSFeed
-import os
-from vendor_utils import get_vendor_info_auto
+from models import VendorProfile, VendorSecurity, PrivacyControls, BusinessMaturity, RSSFeed
+from vendor_utils import gather_vendor_data
 import uuid
+from datetime import datetime
 
-def add_info_to_db(vendors, update_all_fields=True):
+
+def is_admin_claim(event):
+    claims = None
+    authorizer = event['requestContext'].get('authorizer', {})
+    if 'jwt' in authorizer and 'claims' in authorizer['jwt']:
+        claims = authorizer['jwt']['claims']
+    elif 'claims' in authorizer:
+        claims = authorizer['claims']
+    else:
+        return False
+    groups = claims.get('cognito:groups', [])
+    print(f"User groups from claims: {groups}")
+    if isinstance(groups, str):
+        groups = [g.strip() for g in groups.split(',')]
+    return any('Admins' in g for g in groups)
+
+
+def update_or_create_vendor(vendor_name, update_all_fields=True, model="sonar"):
+    """Simple function to update or create vendor with all related data"""
+    normalized_vendor = basename(vendor_name).upper()
+    
+    # Get vendor data
+    vendor_data = gather_vendor_data(normalized_vendor, model=model)
+    if not vendor_data or 'vendors' not in vendor_data:
+        return None, f"Could not generate info for {normalized_vendor}"
+    
+    vendor_info = vendor_data['vendors']
+    
+    # Update or create main vendor record
+    vendor, created = VendorProfile.get_or_create(
+        vendor=normalized_vendor,
+        defaults=vendor_info
+    )
+    
+    if not created and update_all_fields:
+        # Update existing vendor
+        for field, value in vendor_info.items():
+            if hasattr(vendor, field) and value is not None:
+                setattr(vendor, field, value)
+        vendor.updated_at = datetime.now()
+        vendor.save()
+    
+    # Handle related records
+    _update_related_records(vendor, vendor_data)
+    
+    return vendor, "updated" if not created else "created"
+
+def _update_related_records(vendor, vendor_data):
+    """Helper to update related security, privacy, and maturity records"""
+    # Security info
+    if 'vendor_security' in vendor_data and vendor_data['vendor_security']:
+        VendorSecurity.delete().where(VendorSecurity.vendor == vendor).execute()
+        VendorSecurity.create(vendor=vendor, **vendor_data['vendor_security'])
+    
+    # Privacy info
+    if 'privacy_controls' in vendor_data and vendor_data['privacy_controls']:
+        PrivacyControls.delete().where(PrivacyControls.vendor == vendor).execute()
+        PrivacyControls.create(vendor=vendor, **vendor_data['privacy_controls'])
+    
+    # Maturity info
+    if 'business_maturity' in vendor_data and vendor_data['business_maturity']:
+        BusinessMaturity.delete().where(BusinessMaturity.vendor == vendor).execute()
+        BusinessMaturity.create(vendor=vendor, **vendor_data['business_maturity'])
+
+def get_complete_vendor_info(vendor_obj):
+    """Get vendor with all related data in one place"""
+    # Base vendor info
+    vendor_dict = {
+        "id": str(vendor_obj.id),
+        "vendor": vendor_obj.vendor,
+        **{field: getattr(vendor_obj, field) for field in [
+            'company_description', 'business_type', 'founded_year', 'employee_count',
+            'industry', 'primary_product', 'customer_count_estimate', 'logo',
+            'website_url', 'privacy_policy_url', 'tos_url', 'headquarters_location',
+            'contact_email', 'security_rating', 'risk_score', 'date', 'last_reviewed'
+        ]},
+        # Handle JSON fields with defaults
+        "alias": vendor_obj.alias or [],
+        "data_collected": vendor_obj.data_collected or [],
+        "risk_categories": vendor_obj.risk_categories or [],
+        "breach_history": vendor_obj.breach_history or [],
+    }
+    
+    # Add related data using Peewee's backref relationships
+    if hasattr(vendor_obj, 'security_info') and vendor_obj.security_info:
+        security = vendor_obj.security_info[0]  # get first related record
+        vendor_dict.update({
+            "compliance_certifications": security.compliance_certifications or [],
+            "published_subprocessors": security.published_subprocessors or []
+        })
+    
+    if hasattr(vendor_obj, 'privacy_controls') and vendor_obj.privacy_controls:
+        privacy = vendor_obj.privacy_controls[0]
+        vendor_dict.update({
+            "shared_data_description": privacy.shared_data_description,
+            "ml_training_data_description": privacy.ml_training_data_description,
+            "supports_data_subject_requests": privacy.supports_data_subject_requests,
+            "gdpr_compliant": privacy.gdpr_compliant,
+            "data_returned_after_termination": privacy.data_returned_after_termination,
+            "data_physical_location": privacy.data_physical_location
+        })
+    
+    if hasattr(vendor_obj, 'business_maturity') and vendor_obj.business_maturity:
+        maturity = vendor_obj.business_maturity[0]
+        vendor_dict.update({
+            "company_type": maturity.company_type,
+            "total_funding": maturity.total_funding,
+            "funding_round": maturity.funding_round,
+            "has_enterprise_customers": maturity.has_enterprise_customers,
+            "popularity_index": maturity.popularity_index,
+            "revenue_estimate": maturity.revenue_estimate
+        })
+    
+    return vendor_dict
+
+# Main API functions - much simpler now
+def add_info_to_db(vendors, update_all_fields=True, model="sonar"):
     if not vendors:
-        print("No vendors to add.")
-        return {
-            'statusCode': 400,
-            'body': json.dumps('No vendors to add.')
-        }
+        return {'statusCode': 400, 'body': json.dumps('No vendors to add.')}
+    
     db.connect(reuse_if_open=True)
     updated_vendors = []
     inserted_vendors = []
-    for vendor in vendors:
-        normalized_vendor = basename(vendor).upper()
-        obj = VendorInfo.select().where(VendorInfo.vendor == normalized_vendor).first()
-        if obj:
-            vendor_info = get_vendor_info_auto(normalized_vendor, update_all_fields=update_all_fields)
-        else:
-            vendor_info = get_vendor_info_auto(normalized_vendor, update_all_fields=True)
-        print("Vendor info:", vendor_info)
-        if not vendor_info:
-            print(f"Could not generate info for {normalized_vendor}")
-            continue
-
-        try:
-            if obj:
-                # Only update fields that are not None
-                if vendor_info.get('s_and_c_cert') is not None:
-                    obj.s_and_c_cert = vendor_info.get('s_and_c_cert', [])
-                if vendor_info.get('bus_type') is not None:
-                    obj.bus_type = vendor_info.get('bus_type', [])
-                if vendor_info.get('data_collected') is not None:
-                    obj.data_collected = vendor_info.get('data_collected') if vendor_info.get('data_collected') not in ("", None) else None
-                if vendor_info.get('legal_compliance') is not None:
-                    obj.legal_compliance = vendor_info.get('legal_compliance') if vendor_info.get('legal_compliance') not in ("", None) else None
-                if vendor_info.get('published_subprocessors') is not None:
-                    obj.published_subprocessors = vendor_info.get('published_subprocessors', [])
-                if vendor_info.get('privacy_policy_url') is not None:
-                    obj.privacy_policy_url = vendor_info.get('privacy_policy_url')
-                if vendor_info.get('terms_of_service_url') is not None or vendor_info.get('tos_url') is not None:
-                    obj.tos_url = vendor_info.get('terms_of_service_url') or vendor_info.get('tos_url')
-                if vendor_info.get('date') is not None:
-                    obj.date = vendor_info.get('date')
-                if vendor_info.get('alias') is not None:
-                    obj.alias = vendor_info.get('alias')
-                if vendor_info.get('logo') is not None:
-                    obj.logo = vendor_info.get('logo')
-                if vendor_info.get('data') is not None:
-                    obj.data = vendor_info.get('data')
-                if vendor_info.get('security_rating') is not None:
-                    obj.security_rating = vendor_info.get('security_rating')
-                if vendor_info.get('risk_score') is not None:
-                    obj.risk_score = vendor_info.get('risk_score')
-                if vendor_info.get('risk_categories') is not None:
-                    obj.risk_categories = vendor_info.get('risk_categories')
-                if vendor_info.get('compliance_certifications') is not None:
-                    obj.compliance_certifications = vendor_info.get('compliance_certifications')
-                if vendor_info.get('headquarters_location') is not None:
-                    obj.headquarters_location = vendor_info.get('headquarters_location')
-                if vendor_info.get('contact_email') is not None:
-                    obj.contact_email = vendor_info.get('contact_email')
-                if vendor_info.get('breach_history') is not None:
-                    obj.breach_history = vendor_info.get('breach_history')
-                if vendor_info.get('last_reviewed') is not None:
-                    obj.last_reviewed = vendor_info.get('last_reviewed')
-                if vendor_info.get('website_url') is not None:
-                    obj.website_url = vendor_info.get('website_url')
-                obj.save()
-                updated_vendors.append(normalized_vendor)
-            else:
-                obj = VendorInfo.create(
-                    vendor=normalized_vendor,
-                    s_and_c_cert=vendor_info.get('s_and_c_cert', []),
-                    bus_type=vendor_info.get('bus_type', []),
-                    data_collected=vendor_info.get('data_collected') if vendor_info.get('data_collected') not in ("", None) else None,
-                    legal_compliance=vendor_info.get('legal_compliance') if vendor_info.get('legal_compliance') not in ("", None) else None,
-                    published_subprocessors=vendor_info.get('published_subprocessors', []),
-                    privacy_policy_url=vendor_info.get('privacy_policy_url'),
-                    tos_url=vendor_info.get('terms_of_service_url') or vendor_info.get('tos_url'),
-                    date=vendor_info.get('date'),
-                    alias=vendor_info.get('alias'),
-                    logo=vendor_info.get('logo'),
-                    data=vendor_info.get('data'),
-                    security_rating=vendor_info.get('security_rating'),
-                    risk_score=vendor_info.get('risk_score'),
-                    risk_categories=vendor_info.get('risk_categories'),
-                    compliance_certifications=vendor_info.get('compliance_certifications'),
-                    headquarters_location=vendor_info.get('headquarters_location'),
-                    contact_email=vendor_info.get('contact_email'),
-                    breach_history=vendor_info.get('breach_history'),
-                    last_reviewed=vendor_info.get('last_reviewed'),
-                    website_url=vendor_info.get('website_url')
-                )
-                inserted_vendors.append(normalized_vendor)
-                print(f"Inserted {normalized_vendor} into the database.")
-        except Exception as e:
-            print(f"Error adding vendor info to database: {e}")
-            db.rollback()
-            continue
-    db.close()
+    
+    try:
+        for vendor in vendors:
+            vendor_obj, status = update_or_create_vendor(vendor, update_all_fields, model=model)
+            if vendor_obj:
+                if status == "created":
+                    inserted_vendors.append(vendor_obj.vendor)
+                else:
+                    updated_vendors.append(vendor_obj.vendor)
+    except Exception as e:
+        print(f"Error: {e}")
+        db.rollback()
+    finally:
+        db.close()
+    
     return {
         'statusCode': 200,
-        'body': json.dumps({
-            'Updated': updated_vendors,
-            'Inserted': inserted_vendors
-        })
+        'body': json.dumps({'Updated': updated_vendors, 'Inserted': inserted_vendors})
     }
 
 def get_vendor_info_from_db(vendor_names):
     db.connect(reuse_if_open=True)
     results = []
-    for vendor in vendor_names:
-        normalized_vendor = basename(vendor).upper()
-        try:
-            obj = VendorInfo.select().where(VendorInfo.vendor ** f"%{normalized_vendor}%").first()
-            if obj:
-                vendor_info = {
-                    "vendor": obj.vendor,
-                    "s_and_c_cert": obj.s_and_c_cert if obj.s_and_c_cert else [],
-                    "bus_type": obj.bus_type if obj.bus_type else [],
-                    "data_collected": obj.data_collected,
-                    "legal_compliance": obj.legal_compliance,
-                    "published_subprocessors": obj.published_subprocessors if obj.published_subprocessors else [],
-                    "privacy_policy_url": obj.privacy_policy_url,
-                    "tos_url": obj.tos_url,
-                    "date": obj.date,
-                    "alias": obj.alias,
-                    "logo": obj.logo,
-                    "data": obj.data,
-                    "security_rating": obj.security_rating,
-                    "risk_score": obj.risk_score,
-                    "risk_categories": obj.risk_categories,
-                    "compliance_certifications": obj.compliance_certifications,
-                    "headquarters_location": obj.headquarters_location,
-                    "contact_email": obj.contact_email,
-                    "breach_history": obj.breach_history,
-                    "last_reviewed": obj.last_reviewed,
-                    "website_url": obj.website_url
-                }
-                results.append(vendor_info)
-            else:
-                print(f"No info found for {normalized_vendor}")
-        except Exception as e:
-            print(f"Error querying database: {e}")
-            continue
-    db.close()
-    print(f"Results: {results}")
-    return {
-        'statusCode': 200,
-        'body': json.dumps(results, default=str)
-    }
+    
+    try:
+        for vendor in vendor_names:
+            normalized_vendor = basename(vendor).upper()
+            vendor_obj = VendorProfile.select().where(
+                VendorProfile.vendor ** f"%{normalized_vendor}%"
+            ).first()
+            
+            if vendor_obj:
+                results.append(get_complete_vendor_info(vendor_obj))
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        db.close()
+    
+    return {'statusCode': 200, 'body': json.dumps(results, default=str)}
 
 def get_all_vendors_from_db():
     db.connect(reuse_if_open=True)
-    results = []
     try:
-        for obj in VendorInfo.select(VendorInfo.id, VendorInfo.vendor, VendorInfo.logo, VendorInfo.website_url):
-            results.append({
-                "id": str(obj.id),
-                "vendor": obj.vendor,
-                "logo": obj.logo,
-                "website_url": obj.website_url
-            })
+        results = [
+            {"id": str(v.id), "vendor": v.vendor, "logo": v.logo, "website_url": v.website_url}
+            for v in VendorProfile.select(VendorProfile.id, VendorProfile.vendor, 
+                                         VendorProfile.logo, VendorProfile.website_url)
+        ]
+        return {'statusCode': 200, 'body': json.dumps(results, default=str)}
     except Exception as e:
-        print(f"Error querying all vendors: {e}")
-    db.close()
-    return {
-        'statusCode': 200,
-        'body': json.dumps(results, default=str)
-    }
+        print(f"Error: {e}")
+        return {'statusCode': 500, 'body': json.dumps('Error querying vendors')}
+    finally:
+        db.close()
 
 def get_vendor_info_by_id_or_name(id=None, vendor_name=None):
-    """
-    Retrieve vendor info by id or vendor_name.
-    """
     db.connect(reuse_if_open=True)
-    obj = None
     try:
-        if id is not None:
-            obj = VendorInfo.select().where(VendorInfo.id == id).first()
-        elif vendor_name is not None:
+        if id:
+            vendor_obj = VendorProfile.select().where(VendorProfile.id == id).first()
+        elif vendor_name:
             normalized_vendor = basename(vendor_name).upper()
-            obj = VendorInfo.select().where(VendorInfo.vendor == normalized_vendor).first()
-        if obj:
-            vendor_info = {
-                "vendor": obj.vendor,
-                "s_and_c_cert": obj.s_and_c_cert if obj.s_and_c_cert else [],
-                "bus_type": obj.bus_type if obj.bus_type else [],
-                "data_collected": obj.data_collected,
-                "legal_compliance": obj.legal_compliance,
-                "published_subprocessors": obj.published_subprocessors if obj.published_subprocessors else [],
-                "privacy_policy_url": obj.privacy_policy_url,
-                "tos_url": obj.tos_url,
-                "date": obj.date,
-                "alias": obj.alias,
-                "logo": obj.logo,
-                "data": obj.data,
-                "security_rating": obj.security_rating,
-                "risk_score": obj.risk_score,
-                "risk_categories": obj.risk_categories,
-                "compliance_certifications": obj.compliance_certifications,
-                "headquarters_location": obj.headquarters_location,
-                "contact_email": obj.contact_email,
-                "breach_history": obj.breach_history,
-                "last_reviewed": obj.last_reviewed,
-                "website_url": obj.website_url
-            }
-            result = {
-                'statusCode': 200,
-                'body': json.dumps(vendor_info, default=str)
-            }
+            vendor_obj = VendorProfile.select().where(VendorProfile.vendor == normalized_vendor).first()
         else:
-            result = {
-                'statusCode': 404,
-                'body': json.dumps('Vendor not found')
-            }
+            return {'statusCode': 400, 'body': json.dumps('ID or name required')}
+        
+        if vendor_obj:
+            return {'statusCode': 200, 'body': json.dumps(get_complete_vendor_info(vendor_obj), default=str)}
+        else:
+            return {'statusCode': 404, 'body': json.dumps('Vendor not found')}
     except Exception as e:
-        print(f"Error querying vendor by id or name: {e}")
-        result = {
-            'statusCode': 500,
-            'body': json.dumps('Internal server error')
-        }
-    db.close()
-    return result
+        print(f"Error: {e}")
+        return {'statusCode': 500, 'body': json.dumps('Internal server error')}
+    finally:
+        db.close()
 
 def get_security_instances_by_vendor(id_or_name):
-    """
-    Retrieve all RSSFeed entries that share the same vendor name.
-    """
     db.connect(reuse_if_open=True)
     try:
-        # Try to resolve id_or_name as UUID, else treat as vendor name
+        # Find vendor
         try:
             vendor_id = uuid.UUID(id_or_name)
-            obj = VendorInfo.select().where(VendorInfo.id == vendor_id).first()
-            if obj:
-                vendor_name = obj.vendor
-            else:
-                vendor_name = None
-        except Exception:
+            vendor_obj = VendorProfile.select().where(VendorProfile.id == vendor_id).first()
+            vendor_name = vendor_obj.vendor if vendor_obj else None
+        except:
             vendor_name = basename(id_or_name).upper()
-        if not vendor_name:
-            return {
-                'statusCode': 404,
-                'body': json.dumps('Vendor not found')
-            }
-        feeds = RSSFeed.select().where(RSSFeed.vendor == vendor_name)
-        results = []
-        for feed in feeds:
-            results.append({
-                "id": str(feed.id) if hasattr(feed, "id") else None,
+            vendor_obj = VendorProfile.select().where(VendorProfile.vendor == vendor_name).first()
+        
+        if not vendor_obj:
+            return {'statusCode': 404, 'body': json.dumps('Vendor not found')}
+        
+        # Get RSS feeds (supporting both new foreign key and legacy vendor_name field)
+        feeds_by_fk = list(RSSFeed.select().where(RSSFeed.vendor == vendor_obj))
+        feeds_by_name = list(RSSFeed.select().where(RSSFeed.vendor_name == vendor_name))
+        
+        # Deduplicate by URL
+        all_feeds = {feed.url: feed for feed in feeds_by_fk + feeds_by_name}.values()
+        
+        results = [
+            {
+                "id": str(feed.id),
                 "title": feed.title,
-                "vendor": feed.vendor,
+                "vendor": vendor_name,
                 "product": feed.product,
                 "published": str(feed.published),
                 "exploits": feed.exploits,
@@ -268,77 +243,61 @@ def get_security_instances_by_vendor(id_or_name):
                 "potentially_impacted_data": feed.potentially_impacted_data,
                 "status": feed.status,
                 "source": feed.source
-            })
-        result = {
-            'statusCode': 200,
-            'body': json.dumps(results, default=str)
-        }
+            }
+            for feed in all_feeds
+        ]
+        
+        return {'statusCode': 200, 'body': json.dumps(results, default=str)}
     except Exception as e:
-        print(f"Error querying security instances: {e}")
-        result = {
-            'statusCode': 500,
-            'body': json.dumps('Internal server error')
-        }
-    db.close()
-    return result
+        print(f"Error: {e}")
+        return {'statusCode': 500, 'body': json.dumps('Internal server error')}
+    finally:
+        db.close()
 
+# Lambda handler remains the same
 def lambda_handler(event, context):
     try:
         route_key = event.get('routeKey', '')
     except Exception:
-        return {
-            'statusCode': 400,
-            'body': json.dumps('Bad Request: No routeKey found')
-        }
+        return {'statusCode': 400, 'body': json.dumps('Bad Request: No routeKey found')}
+    
     if route_key == 'GET /vendors/all':
         return get_all_vendors_from_db()
+    
     if route_key.startswith('GET /vendor/'):
-        # Expecting /vendor/{id_or_name}
+        # Extract vendor ID/name from path
         id_or_name = None
         if 'pathParameters' in event and event['pathParameters']:
             id_or_name = event['pathParameters'].get('id_or_name')
-        # Fallback: parse from the path if pathParameters is not set
+        
         if not id_or_name:
             path = event.get('rawPath') or event.get('path', '')
-            # path should be like /vendor/{id_or_name} or /vendor/{id_or_name}/security-instances
             parts = path.strip('/').split('/')
             if len(parts) >= 2 and parts[0] == 'vendor':
                 id_or_name = parts[1]
-        # Check for /vendor/{id_or_name}/security-instances
+        
+        # Check for security-instances endpoint
         path = event.get('rawPath') or event.get('path', '')
         if path and path.strip('/').endswith('security-instances'):
-            # /vendor/{id_or_name}/security-instances
-            if not id_or_name:
-                parts = path.strip('/').split('/')
-                if len(parts) >= 3 and parts[0] == 'vendor':
-                    id_or_name = parts[1]
             return get_security_instances_by_vendor(id_or_name)
-        vendor_id = None
-        vendor_name = None
+        
+        # Regular vendor info lookup
         try:
             vendor_id = uuid.UUID(id_or_name)
-        except Exception:
-            vendor_name = id_or_name
-        return get_vendor_info_by_id_or_name(id=vendor_id, vendor_name=vendor_name)
+            return get_vendor_info_by_id_or_name(id=vendor_id)
+        except:
+            return get_vendor_info_by_id_or_name(vendor_name=id_or_name)
+    
     if route_key.startswith('POST '):
         body = event.get('body')
-        if body:
-            data = json.loads(body) if isinstance(body, str) else body
-        else:
-            data = event
+        if is_admin_claim(event) is False:
+            return {'statusCode': 403, 'body': json.dumps('Forbidden: Admins only')}
+        data = json.loads(body) if isinstance(body, str) else (body or event)
         vendors = data.get('vendors', [])
         update_all_fields = data.get('updateAllFields', True)
-        return add_info_to_db(vendors, update_all_fields=update_all_fields)
-    elif route_key.startswith('GET '):
-        vendor_names = event.get('queryStringParameters', {}).get('vendors', [])
-        print(f"Vendor names: {vendor_names}")
-        if isinstance(vendor_names, str):
-            vendor_names = [v.strip() for v in vendor_names.split(',')]
-        return get_vendor_info_from_db(vendor_names)
-    else:
-        return {
-            'statusCode': 400,
-            'body': json.dumps('Bad Request: Invalid routeKey')
-        }
+        model = data.get('model', 'sonar')
+        return add_info_to_db(vendors, update_all_fields=update_all_fields, model=model)
+    
+    return {'statusCode': 400, 'body': json.dumps('Bad Request: Invalid routeKey')}
 
 

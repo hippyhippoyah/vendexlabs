@@ -1,4 +1,5 @@
 import peewee
+import uuid
 from config import db
 
 class BaseModel(peewee.Model):
@@ -6,6 +7,7 @@ class BaseModel(peewee.Model):
         database = db
 
 class User(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     name = peewee.TextField(null=True)
     email = peewee.TextField(unique=True)
 
@@ -13,6 +15,7 @@ class User(BaseModel):
         table_name = 'users'
 
 class Account(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     name = peewee.TextField(unique=True)
     active = peewee.BooleanField(default=True)
 
@@ -20,6 +23,7 @@ class Account(BaseModel):
         table_name = 'accounts'
 
 class Admin(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     email = peewee.TextField(unique=True)
 
     class Meta:
@@ -34,14 +38,17 @@ class AccountUser(BaseModel):
         primary_key = peewee.CompositeKey('account', 'user')
 
 class Vendor(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     name = peewee.TextField()
 
     class Meta:
         table_name = 'vendors'
 
 class VendorList(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     name = peewee.TextField()
-    account = peewee.ForeignKeyField(Account, backref='vendor_lists')
+    account = peewee.ForeignKeyField(Account, backref='vendor_lists', null=True)
+    user = peewee.ForeignKeyField(User, backref='personal_vendor_lists', null=True)
 
     class Meta:
         table_name = 'vendor_lists'
@@ -55,6 +62,7 @@ class VendorListVendor(BaseModel):
         primary_key = peewee.CompositeKey('vendor_list', 'vendor')
 
 class Subscriber(BaseModel):
+    id = peewee.UUIDField(primary_key=True, default=uuid.uuid4)
     email = peewee.TextField(unique=True)
     verified = peewee.BooleanField(default=False)
 

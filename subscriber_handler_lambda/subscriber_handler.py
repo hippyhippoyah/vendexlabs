@@ -24,54 +24,58 @@ def is_user_in_account(account_id, email):
     except (Account.DoesNotExist, User.DoesNotExist):
         return False
 
-def add_subscriber(account_id, vendor_list_name, subscriber_email):
+def add_subscriber(account_id, vendor_list_id, subscriber_email):
     db.connect(reuse_if_open=True)
     try:
         account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get(
-            (VendorList.name == vendor_list_name) & (VendorList.account == account)
+            (VendorList.id == vendor_list_id) & (VendorList.account == account)
         )
-        subscriber, _ = Subscriber.get_or_create(email=subscriber_email)
-
-        VendorListSubscriber.get_or_create(
-            vendor_list=vendor_list,
-            subscriber=subscriber
-        )
-
-        # Placeholder: Trigger verification email to subscriber
-        print(f"Trigger verification email to {subscriber_email}")
-
+        emails = subscriber_email if isinstance(subscriber_email, list) else [subscriber_email]
+        added = []
+        already_exists = []
+        for email in emails:
+            subscriber, _ = Subscriber.get_or_create(email=email)
+            _, created = VendorListSubscriber.get_or_create(
+                vendor_list=vendor_list,
+                subscriber=subscriber
+            )
+            print(f"Trigger verification email to {email}")
+            if created:
+                added.append(email)
+            else:
+                already_exists.append(email)
+        status = 200 if added else 409
+        body = {
+            "added": added,
+            "already_exists": already_exists,
+            "message": f"Added: {added}, Already exists: {already_exists}"
+        }
         return {
-            'statusCode': 200,
-            'body': json.dumps(f"Subscriber '{subscriber_email}' added to '{vendor_list_name}'")
+            'statusCode': status,
+            'body': json.dumps(body)
         }
     except (Account.DoesNotExist, VendorList.DoesNotExist):
         return {
             'statusCode': 404,
             'body': json.dumps("Account or vendor list not found.")
         }
-    except IntegrityError:
-        db.rollback()
-        return {
-            'statusCode': 409,
-            'body': json.dumps("Subscriber already exists in this vendor list.")
-        }
     finally:
         db.close()
 
-def get_subscribers(account_id, vendor_list_name):
+def get_subscribers(account_id, vendor_list_id):
     db.connect(reuse_if_open=True)
     try:
         account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get(
-            (VendorList.name == vendor_list_name) & (VendorList.account == account)
+            (VendorList.id == vendor_list_id) & (VendorList.account == account)
         )
 
         subscribers = [
-            {"email": s.email, "verified": s.verified}
-            for s in Subscriber.select().join(VendorListSubscriber).where(
+            {"email": s.subscriber.email, "verified": s.subscriber.verified}
+            for s in VendorListSubscriber.select().where(
                 VendorListSubscriber.vendor_list == vendor_list
-            )
+            ).join(Subscriber)
         ]
         return {
             'statusCode': 200,
@@ -85,34 +89,43 @@ def get_subscribers(account_id, vendor_list_name):
     finally:
         db.close()
 
-def delete_subscriber(account_id, vendor_list_name, subscriber_email):
+def delete_subscriber(account_id, vendor_list_id, subscriber_email):
     db.connect(reuse_if_open=True)
     try:
         account = Account.get(Account.id == account_id)
         vendor_list = VendorList.get(
-            (VendorList.name == vendor_list_name) & (VendorList.account == account)
+            (VendorList.id == vendor_list_id) & (VendorList.account == account)
         )
-        subscriber = Subscriber.get(Subscriber.email == subscriber_email)
-
-        deleted = VendorListSubscriber.delete().where(
-            (VendorListSubscriber.vendor_list == vendor_list) &
-            (VendorListSubscriber.subscriber == subscriber)
-        ).execute()
-
-        if deleted:
-            return {
-                'statusCode': 200,
-                'body': json.dumps(f"Subscriber '{subscriber_email}' removed.")
-            }
-        else:
-            return {
-                'statusCode': 404,
-                'body': json.dumps("Subscriber not found in the vendor list.")
-            }
-    except (Account.DoesNotExist, VendorList.DoesNotExist, Subscriber.DoesNotExist):
+        emails = subscriber_email if isinstance(subscriber_email, list) else [subscriber_email]
+        removed = []
+        not_found = []
+        for email in emails:
+            try:
+                subscriber = Subscriber.get(Subscriber.email == email)
+                deleted = VendorListSubscriber.delete().where(
+                    (VendorListSubscriber.vendor_list == vendor_list) &
+                    (VendorListSubscriber.subscriber == subscriber)
+                ).execute()
+                if deleted:
+                    removed.append(email)
+                else:
+                    not_found.append(email)
+            except Subscriber.DoesNotExist:
+                not_found.append(email)
+        status = 200 if removed else 404
+        body = {
+            "removed": removed,
+            "not_found": not_found,
+            "message": f"Removed: {removed}, Not found: {not_found}"
+        }
+        return {
+            'statusCode': status,
+            'body': json.dumps(body)
+        }
+    except (Account.DoesNotExist, VendorList.DoesNotExist):
         return {
             'statusCode': 404,
-            'body': json.dumps("Account, vendor list, or subscriber not found.")
+            'body': json.dumps("Account or vendor list not found.")
         }
     finally:
         db.close()
@@ -160,14 +173,20 @@ def lambda_handler(event, context):
     else:
         data = event
 
-    account_id = data.get('account_id')
-    vendor_list_name = data.get('vendor_list')
-    subscriber_email = data.get('subscriber_email')
+    query_params = event.get('queryStringParameters') or {}
+    account_id = query_params.get('account-id')
+    vendor_list_id = query_params.get('vendor-list')
+    subscriber_email = data.get('subscriber-email')
+    if isinstance(subscriber_email, str) and subscriber_email.startswith('[') and subscriber_email.endswith(']'):
+        try:
+            subscriber_email = json.loads(subscriber_email)
+        except Exception:
+            pass
 
-    if not account_id or not vendor_list_name:
+    if not account_id or not vendor_list_id:
         return {
             'statusCode': 400,
-            'body': json.dumps("Missing required fields: 'account_id' and 'vendor_list'")
+            'body': json.dumps("Missing required fields: 'account-id', 'vendor-list-id'")
         }
 
     if method in ['POST', 'DELETE', 'GET']:
@@ -181,26 +200,31 @@ def lambda_handler(event, context):
         if not subscriber_email:
             return {
                 'statusCode': 400,
-                'body': json.dumps("Missing required field: 'subscriber_email'")
+                'body': json.dumps("Missing required field: 'subscriber-email'")
             }
-        return add_subscriber(account_id, vendor_list_name, subscriber_email)
+        return add_subscriber(account_id, vendor_list_id, subscriber_email)
 
     elif method == 'GET':
-        return get_subscribers(account_id, vendor_list_name)
+        return get_subscribers(account_id, vendor_list_id)
 
     elif method == 'DELETE':
         if not subscriber_email:
             return {
                 'statusCode': 400,
-                'body': json.dumps("Missing required field: 'subscriber_email'")
+                'body': json.dumps("Missing required field: 'subscriber-email'")
             }
-        return delete_subscriber(account_id, vendor_list_name, subscriber_email)
+        return delete_subscriber(account_id, vendor_list_id, subscriber_email)
 
     elif method == 'PATCH':
         if not subscriber_email:
             return {
                 'statusCode': 400,
-                'body': json.dumps("Missing required field: 'subscriber_email'")
+                'body': json.dumps("Missing required field: 'subscriber-email'")
+            }
+        if isinstance(subscriber_email, list):
+            return {
+                'statusCode': 400,
+                'body': json.dumps("PATCH only supports a single subscriber-email.")
             }
         if email != subscriber_email:
             return {
