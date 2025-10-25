@@ -2,7 +2,7 @@
 
 
 ## Overview
-Current Iteration (V1.1) sends email notifications 
+Current Iteration (V1.5) supports Assessment Tracking
 
 ## Features
 - **Infrastructure as Code (IaC)**: Terraform scripts to provision AWS resources.
