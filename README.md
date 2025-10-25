@@ -10,14 +10,10 @@ Current Iteration (V1.1) sends email notifications
 - **Security Best Practices**: IAM roles, security groups, and encryption enabled.
 - **Scalability**: Auto-scaling and load balancing configurations.
 
-## Architecture
-A simplified diagram of the main parts
-![AWS Architecture Diagram](aws-architecture.png)
-
 - API Gateway and Cognito are managed externally. 
 
 
-## Getting Started
+## Development
 ### Prerequisites
 - AWS CLI installed and configured
 - Terraform installed: https://developer.hashicorp.com/terraform/tutorials/aws-get-started

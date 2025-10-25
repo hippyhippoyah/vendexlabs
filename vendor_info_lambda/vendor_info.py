@@ -8,6 +8,7 @@ from datetime import datetime
 
 
 def is_admin_claim(event):
+    print("Full event for debugging:", json.dumps(event, indent=2))
     claims = None
     authorizer = event['requestContext'].get('authorizer', {})
     if 'jwt' in authorizer and 'claims' in authorizer['jwt']:
@@ -15,6 +16,7 @@ def is_admin_claim(event):
     elif 'claims' in authorizer:
         claims = authorizer['claims']
     else:
+        print("No claims found in authorizer")
         return False
     groups = claims.get('cognito:groups', [])
     print(f"User groups from claims: {groups}")
