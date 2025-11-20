@@ -27,6 +27,146 @@ def is_user_in_account(account_id, email):
     except (Account.DoesNotExist, User.DoesNotExist, ValueError):
         return False
 
+# unused
+def add_individual_vendor_lists(email, vendors):
+    db.connect(reuse_if_open=True)
+    subscribed = []
+    already_subscribed = []
+    try:
+        user, _ = User.get_or_create(email=email)
+        for vendor_name in vendors:
+            vendor, _ = Vendor.get_or_create(name=vendor_name)
+            exists = VendorListVendor.select().join(VendorList).where(
+                (VendorList.user == user) & (VendorListVendor.vendor == vendor)
+            ).exists()
+            if exists:
+                already_subscribed.append(vendor_name)
+                continue
+            vendor_list, _ = VendorList.get_or_create(user=user, name=f"{user.email}_list")
+            VendorListVendor.create(vendor_list=vendor_list, vendor=vendor)
+            subscribed.append(vendor_name)
+    except IntegrityError:
+        db.rollback()
+    except Exception as e:
+        db.rollback()
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f'Error subscribing: {str(e)}')
+        }
+    finally:
+        db.close()
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': f"Subscribed to: {', '.join(subscribed)}. Already subscribed to: {', '.join(already_subscribed)}."
+        })
+    }
+
+def get_individual_vendor_lists(email):
+    db.connect(reuse_if_open=True)
+    try:
+        user = User.get(User.email == email)
+        vendor_lists = VendorList.select().where(VendorList.user == user)
+        result = []
+        for vlist in vendor_lists:
+            vendor_names = [
+                v.vendor.name
+                for v in VendorListVendor.select().where(VendorListVendor.vendor_list == vlist)
+            ]
+            result.append({
+                'id': str(vlist.id),
+                'name': "master-list",
+                'vendors': vendor_names
+            })
+    except User.DoesNotExist:
+        return {
+            'statusCode': 404,
+            'body': json.dumps('User not found')
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f'Error fetching vendor lists: {str(e)}')
+        }
+    finally:
+        db.close()
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'vendor_lists': result})
+    }
+
+# unused
+def save_individual_vendor_lists(email, vendors):
+    db.connect(reuse_if_open=True)
+    try:
+        user, _ = User.get_or_create(email=email)
+        vendor_list, _ = VendorList.get_or_create(user=user, name=f"{user.email}_list")
+
+        VendorListVendor.delete().where(VendorListVendor.vendor_list == vendor_list).execute()
+
+        added = []
+        for vendor_name in vendors:
+            vendor = Vendor.get_or_create(name=vendor_name)[0]
+            VendorListVendor.create(vendor_list=vendor_list, vendor=vendor)
+            added.append(vendor_name)
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'vendors_saved': added})
+        }
+    except Exception as e:
+        db.rollback()
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f'Error saving vendor lists: {str(e)}')
+        }
+    finally:
+        db.close()
+
+# unused
+def delete_individual_vendor_lists(email, vendors):
+    db.connect(reuse_if_open=True)
+    deleted = []
+    not_found = []
+    try:
+        user = User.get(User.email == email)
+        vendor_lists = VendorList.select().where(VendorList.user == user)
+        for vendor_name in vendors:
+            vendor = Vendor.get_or_none(Vendor.name == vendor_name)
+            if not vendor:
+                not_found.append(vendor_name)
+                continue
+            found = False
+            for vlist in vendor_lists:
+                vlist_vendor = VendorListVendor.get_or_none(
+                    (VendorListVendor.vendor_list == vlist) & (VendorListVendor.vendor == vendor)
+                )
+                if vlist_vendor:
+                    vlist_vendor.delete_instance()
+                    deleted.append(vendor_name)
+                    found = True
+                    break
+            if not found:
+                not_found.append(vendor_name)
+    except User.DoesNotExist:
+        return {
+            'statusCode': 404,
+            'body': json.dumps('User not found')
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f'Error deleting vendor lists: {str(e)}')
+        }
+    finally:
+        db.close()
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'deleted': deleted,
+            'not_found': not_found
+        })
+    }
+
 def add_vendor_list(account_id, vendor_list_name):
     db.connect(reuse_if_open=True)
     try:
@@ -94,6 +234,7 @@ def delete_vendor_list(account_id, vendor_list_id):
     finally:
         db.close()
 
+# unused
 def add_vendors_to_list(account_id, vendor_list_id, vendors):
     db.connect(reuse_if_open=True)
     try:
@@ -135,6 +276,7 @@ def add_vendors_to_list(account_id, vendor_list_id, vendors):
     finally:
         db.close()
 
+# unused
 def remove_vendors_from_list(account_id, vendor_list_name, vendors):
     db.connect(reuse_if_open=True)
     try:
@@ -285,7 +427,13 @@ def get_vendors_from_list(account_id, vendor_list_id):
         ]
         return {
             'statusCode': 200,
-            'body': json.dumps({'vendors': vendors})
+            'body': json.dumps({
+                'vendor_lists': [{
+                    'id': str(vendor_list.id),
+                    'name': vendor_list.name,
+                    'vendors': vendors
+                }]
+            })
         }
     except VendorList.DoesNotExist:
         return {
@@ -315,14 +463,29 @@ def lambda_handler(event, context):
     data = json.loads(body) if isinstance(body, str) else body or event
 
     query_params = event.get('queryStringParameters') or {}
-    account_id = query_params.get('account-id')
+    account_id_raw = query_params.get('account-id')
     vendor_list_name = query_params.get('vendor-list')
     operation = query_params.get('operation')  # New parameter for vendor operations
 
     vendors = data.get('vendors', [])
 
-    if not account_id:
+    if not account_id_raw:
         return {'statusCode': 400, 'body': json.dumps("Missing 'account-id' field")}
+
+    is_individual = isinstance(account_id_raw, str) and account_id_raw.lower() == 'individual'
+    account_id = account_id_raw
+
+    if is_individual:
+        if method == 'POST':
+            if operation == 'save-vendors':
+                return save_individual_vendor_lists(email, vendors)
+            return add_individual_vendor_lists(email, vendors)
+        elif method == 'GET':
+            return get_individual_vendor_lists(email)
+        elif method == 'DELETE':
+            return delete_individual_vendor_lists(email, vendors)
+        else:
+            return {'statusCode': 405, 'body': json.dumps("Method Not Allowed")}
 
     if not is_user_in_account(account_id, email):
         return {'statusCode': 403, 'body': json.dumps("Forbidden: Not authorized for this account")}

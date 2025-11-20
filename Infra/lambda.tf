@@ -84,12 +84,13 @@ data "archive_file" "vendor_list_handler_lambda_zip" {
   output_path = "${path.module}/vendor-list-handler-lambda.zip"
 }
 
+# DEPRECATED
 # Archive the Individual Subscription Lambda source code
-data "archive_file" "individual_subscription_lambda_zip" {
-  type        = "zip"
-  source_dir  = "../individual_subscription_handler"
-  output_path = "${path.module}/individual-subscription-lambda.zip"
-}
+# data "archive_file" "individual_subscription_lambda_zip" {
+#   type        = "zip"
+#   source_dir  = "../individual_subscription_handler"
+#   output_path = "${path.module}/individual-subscription-lambda.zip"
+# }
 
 # Archive the Vendor Assessment Tracking Lambda source code
 data "archive_file" "vendor_assessment_tracking_lambda_zip" {
@@ -125,30 +126,31 @@ resource "aws_lambda_function" "lambda" {
   }
 }
 
-resource "aws_lambda_function" "individual_subscription_lambda" {
-  function_name    = "lambda-individual-subscription-handler"
-  runtime          = "python3.13"
-  role             = aws_iam_role.vl_lambda_role.arn
-  handler          = "individual_subscription_manager.lambda_handler"
-  filename         = data.archive_file.individual_subscription_lambda_zip.output_path
-  source_code_hash = data.archive_file.individual_subscription_lambda_zip.output_base64sha256
-  timeout          = 120
-  memory_size      = 1024
-  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
-  environment {
-    variables = {
-      DB_HOST     = aws_db_instance.ven_rds.endpoint
-      DB_PORT     = "5432"
-      DB_USER     = var.db_user
-      DB_PASS     = var.db_pass
-      DB_NAME     = "postgres"
-    }
-  }
-  vpc_config {
-    security_group_ids = [data.aws_security_group.default.id]
-    subnet_ids         = data.aws_subnets.default.ids
-  }
-}
+# DEPRECATED
+# resource "aws_lambda_function" "individual_subscription_lambda" {
+#   function_name    = "lambda-individual-subscription-handler"
+#   runtime          = "python3.13"
+#   role             = aws_iam_role.vl_lambda_role.arn
+#   handler          = "individual_subscription_manager.lambda_handler"
+#   filename         = data.archive_file.individual_subscription_lambda_zip.output_path
+#   source_code_hash = data.archive_file.individual_subscription_lambda_zip.output_base64sha256
+#   timeout          = 120
+#   memory_size      = 1024
+#   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
+#   environment {
+#     variables = {
+#       DB_HOST     = aws_db_instance.ven_rds.endpoint
+#       DB_PORT     = "5432"
+#       DB_USER     = var.db_user
+#       DB_PASS     = var.db_pass
+#       DB_NAME     = "postgres"
+#     }
+#   }
+#   vpc_config {
+#     security_group_ids = [data.aws_security_group.default.id]
+#     subnet_ids         = data.aws_subnets.default.ids
+#   }
+# }
 
 resource "aws_lambda_function" "vendor_info_lambda" {
   function_name    = "lambda-vendor-info-handler"

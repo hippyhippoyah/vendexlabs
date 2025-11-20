@@ -9,6 +9,7 @@ Current Iteration (V1.5) supports Assessment Tracking
 - **Logging & Monitoring**: AWS CloudWatch integration.
 - **Security Best Practices**: IAM roles, security groups, and encryption enabled.
 - **Scalability**: Auto-scaling and load balancing configurations.
+- Unified vendor list Lambda handles both account-level and individual subscriptions (set `account-id=individual` on requests for the personal mode).
 
 - API Gateway and Cognito are managed externally. 
 

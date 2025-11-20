@@ -1,1 +1,2 @@
 NOW Handles Individual Subscriptions
+DEPRECATED
