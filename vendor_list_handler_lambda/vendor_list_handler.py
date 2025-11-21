@@ -42,7 +42,11 @@ def add_individual_vendor_lists(email, vendors):
             if exists:
                 already_subscribed.append(vendor_name)
                 continue
-            vendor_list, _ = VendorList.get_or_create(user=user, name=f"{user.email}_list")
+            vendor_list, _ = VendorList.get_or_create(
+                user=user, 
+                name='master-list',
+                defaults={'account': None}
+            )
             VendorListVendor.create(vendor_list=vendor_list, vendor=vendor)
             subscribed.append(vendor_name)
     except IntegrityError:
@@ -100,7 +104,11 @@ def save_individual_vendor_lists(email, vendors):
     db.connect(reuse_if_open=True)
     try:
         user, _ = User.get_or_create(email=email)
-        vendor_list, _ = VendorList.get_or_create(user=user, name=f"{user.email}_list")
+        vendor_list, _ = VendorList.get_or_create(
+            user=user, 
+            name='master-list',
+            defaults={'account': None}
+        )
 
         VendorListVendor.delete().where(VendorListVendor.vendor_list == vendor_list).execute()
 

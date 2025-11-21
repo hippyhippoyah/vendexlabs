@@ -99,6 +99,13 @@ data "archive_file" "vendor_assessment_tracking_lambda_zip" {
   output_path = "${path.module}/vendor-assessment-tracking-lambda.zip"
 }
 
+# Archive the Cognito Post-Confirmation Lambda source code
+data "archive_file" "cognito_post_confirmation_lambda_zip" {
+  type        = "zip"
+  source_dir  = "../cognito_post_confirmation_lambda"
+  output_path = "${path.module}/cognito-post-confirmation-lambda.zip"
+}
+
 resource "aws_lambda_function" "lambda" {
   function_name    = "lambda-RSS-handler"
   runtime          = "python3.13"
@@ -292,6 +299,31 @@ resource "aws_lambda_function" "vendor_assessment_tracking_lambda" {
   filename         = data.archive_file.vendor_assessment_tracking_lambda_zip.output_path
   source_code_hash = data.archive_file.vendor_assessment_tracking_lambda_zip.output_base64sha256
   timeout          = 120
+  memory_size      = 1024
+  layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
+  environment {
+    variables = {
+      DB_HOST = aws_db_instance.ven_rds.endpoint
+      DB_PORT = "5432"
+      DB_USER = var.db_user
+      DB_PASS = var.db_pass
+      DB_NAME = "postgres"
+    }
+  }
+  vpc_config {
+    security_group_ids = [data.aws_security_group.default.id]
+    subnet_ids         = data.aws_subnets.default.ids
+  }
+}
+
+resource "aws_lambda_function" "cognito_post_confirmation_lambda" {
+  function_name    = "lambda-cognito-post-confirmation-handler"
+  runtime          = "python3.13"
+  role             = aws_iam_role.vl_lambda_role.arn
+  handler          = "cognito_post_confirmation.lambda_handler"
+  filename         = data.archive_file.cognito_post_confirmation_lambda_zip.output_path
+  source_code_hash = data.archive_file.cognito_post_confirmation_lambda_zip.output_base64sha256
+  timeout          = 30
   memory_size      = 1024
   layers           = [aws_lambda_layer_version.db_lambda_layer.arn]
   environment {
